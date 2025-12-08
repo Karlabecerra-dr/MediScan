@@ -1,29 +1,44 @@
-// lib/models/medication.dart
-import 'package:flutter/material.dart';
-
-enum MedicationStatus { pending, taken, skipped }
-
-class MedicationDose {
-  final TimeOfDay time;
-  MedicationStatus status;
-
-  MedicationDose({required this.time, this.status = MedicationStatus.pending});
-}
-
 class Medication {
-  final String id;
-  String name;
-  String dose;
-  String presentation;
-  List<int> weekdays; // 1=Lunes ... 7=Domingo
-  List<MedicationDose> doses;
+  final String? id; // id del documento en Firestore
+  final String name;
+  final String dose;
+  final String presentation;
+  final List<String> days; // ["L", "M", "X", ...]
+  final List<String> times; // ["08:00", "20:00"]
+  final String status; // "pendiente", "tomado", "omitido"
 
   Medication({
-    required this.id,
+    this.id,
     required this.name,
     required this.dose,
     required this.presentation,
-    required this.weekdays,
-    required this.doses,
+    required this.days,
+    required this.times,
+    this.status = 'pendiente',
   });
+
+  // Para guardar en Firestore
+  Map<String, dynamic> toMap() {
+    return {
+      'name': name,
+      'dose': dose,
+      'presentation': presentation,
+      'days': days,
+      'times': times,
+      'status': status,
+    };
+  }
+
+  // Para leer desde Firestore
+  factory Medication.fromMap(Map<String, dynamic> map, {String? id}) {
+    return Medication(
+      id: id,
+      name: map['name'] ?? '',
+      dose: map['dose'] ?? '',
+      presentation: map['presentation'] ?? '',
+      days: List<String>.from(map['days'] ?? []),
+      times: List<String>.from(map['times'] ?? []),
+      status: map['status'] ?? 'pendiente',
+    );
+  }
 }

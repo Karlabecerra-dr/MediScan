@@ -1,4 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Permiso requerido para acceder a la red (Firestore, APIs, etc.) -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <application
         android:label="MediScan"
         android:name="${applicationName}"

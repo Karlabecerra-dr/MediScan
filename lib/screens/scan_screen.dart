@@ -1,4 +1,6 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+
 import '../models/medication.dart';
 
 class ScanScreen extends StatelessWidget {
@@ -6,66 +8,63 @@ class ScanScreen extends StatelessWidget {
 
   const ScanScreen({super.key});
 
-  void _simulateSuccess(BuildContext context) {
+  Future<void> _simulateSuccess(BuildContext context) async {
+    // Aquí normalmente vendrían los datos del escaneo.
+    // Por ahora simulamos un medicamento genérico.
     final med = Medication(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
       name: 'Losartán 50 mg (Genérico)',
       dose: '50 mg',
       presentation: 'Tableta',
-      weekdays: [1, 2, 3, 4, 5, 6, 7],
-      doses: [
-        MedicationDose(time: const TimeOfDay(hour: 8, minute: 0)),
-        MedicationDose(time: const TimeOfDay(hour: 20, minute: 0)),
-      ],
+       days: ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sab', 'Dom'],
+      times: ['08:00', '20:00'],
+      status: 'pendiente',
     );
-    Navigator.pop(context, med);
+
+    await FirebaseFirestore.instance.collection('medications').add(med.toMap());
+
+    if (context.mounted) {
+      Navigator.pop(context);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Escanear código')),
-      body: Column(
-        children: [
-          const SizedBox(height: 24),
-          Expanded(
-            child: Center(
-              child: Container(
-                width: 260,
-                height: 260,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(color: Colors.grey.shade500, width: 2),
-                ),
-                child: const Center(
-                  child: Text('Apunta al código de barras o QR'),
-                ),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16),
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
             child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: () => _simulateSuccess(context),
-                    child: const Text('Simular escaneo exitoso'),
+                Container(
+                  width: 220,
+                  height: 220,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.grey.shade400, width: 2),
+                  ),
+                  alignment: Alignment.center,
+                  child: const Text(
+                    'Apunta al código de barras o QR',
+                    textAlign: TextAlign.center,
                   ),
                 ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('Cancelar'),
-                  ),
+                const SizedBox(height: 32),
+                FilledButton(
+                  onPressed: () => _simulateSuccess(context),
+                  child: const Text('Simular escaneo exitoso'),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancelar'),
                 ),
               ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }

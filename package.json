@@ -1,0 +1,26 @@
+{
+  "name": "mediscan",
+  "version": "1.0.0",
+  "description": "A new Flutter project.",
+  "main": "index.js",
+  "directories": {
+    "lib": "lib"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Karlabecerra-dr/MediScan.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Karlabecerra-dr/MediScan/issues"
+  },
+  "homepage": "https://github.com/Karlabecerra-dr/MediScan#readme",
+  "dependencies": {
+    "firebase-admin": "^13.6.0"
+  }
+}

@@ -19,6 +19,8 @@ class DayStrip extends StatelessWidget {
     );
     final days = List.generate(7, (i) => start.add(Duration(days: i)));
 
+    const labels = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+
     return SizedBox(
       height: 80,
       child: ListView.separated(
@@ -34,6 +36,7 @@ class DayStrip extends StatelessWidget {
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               width: 56,
+              constraints: const BoxConstraints(maxWidth: 56),
               decoration: BoxDecoration(
                 color: isSelected
                     ? Theme.of(context).colorScheme.primary
@@ -50,7 +53,10 @@ class DayStrip extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Text(
-                    DateFormat.E('es').format(day)[0].toUpperCase(),
+                    labels[index],
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                    textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 12,
                       color: isSelected ? Colors.white : Colors.grey.shade700,

@@ -1,4 +1,6 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+
 import '../models/medication.dart';
 
 class AddMedicationScreen extends StatefulWidget {
@@ -12,65 +14,102 @@ class AddMedicationScreen extends StatefulWidget {
 
 class _AddMedicationScreenState extends State<AddMedicationScreen> {
   final _formKey = GlobalKey<FormState>();
+
   final _nameCtrl = TextEditingController();
   final _doseCtrl = TextEditingController();
   final _presentationCtrl = TextEditingController(text: 'Tableta');
 
-  final List<MedicationDose> _doses = [
-    MedicationDose(time: const TimeOfDay(hour: 8, minute: 0)),
-  ];
-  List<int> _weekdays = [1, 2, 3, 4, 5, 6, 7];
+  /// Días seleccionados (L = lunes, M = martes, M = miércoles, …)
+  final List<String> _selectedDays = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sab', 'Dom'];
+
+  /// Horas de toma (inicialmente una a las 08:00)
+  final List<TimeOfDay> _times = [const TimeOfDay(hour: 8, minute: 0)];
+
+  // ---------- Pickers / helpers para la UI ----------
 
   Future<void> _pickTime(int index) async {
     final selected = await showTimePicker(
       context: context,
-      initialTime: _doses[index].time,
+      initialTime: _times[index],
     );
     if (selected != null) {
-      setState(() {
-        _doses[index] = MedicationDose(
-          time: selected,
-          status: _doses[index].status,
-        );
-      });
+      setState(() => _times[index] = selected);
     }
   }
 
-  void _addDose() {
+  void _addTime() {
     setState(() {
-      _doses.add(MedicationDose(time: const TimeOfDay(hour: 12, minute: 0)));
+      _times.add(const TimeOfDay(hour: 12, minute: 0));
     });
   }
 
-  void _removeDose(int index) {
+  void _removeTime(int index) {
+    if (_times.length == 1) return; // siempre dejar al menos una hora
     setState(() {
-      _doses.removeAt(index);
+      _times.removeAt(index);
     });
   }
 
-  void _toggleWeekday(int weekday) {
+  void _toggleDay(String label) {
     setState(() {
-      if (_weekdays.contains(weekday)) {
-        _weekdays.remove(weekday);
+      if (_selectedDays.contains(label)) {
+        _selectedDays.remove(label);
       } else {
-        _weekdays.add(weekday);
+        _selectedDays.add(label);
       }
     });
   }
 
-  void _save() {
+  // ---------- Guardar en Firestore y devolver a la Home ----------
+
+  Future<void> _saveMedicationToFirestore() async {
     if (!_formKey.currentState!.validate()) return;
 
+    // Pasamos TimeOfDay -> "HH:MM"
+    final timesAsString = _times.map((t) {
+      final h = t.hour.toString().padLeft(2, '0');
+      final m = t.minute.toString().padLeft(2, '0');
+      return '$h:$m';
+    }).toList();
+
+    // Objeto base (sin id todavía)
     final med = Medication(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
       name: _nameCtrl.text.trim(),
       dose: _doseCtrl.text.trim(),
       presentation: _presentationCtrl.text.trim(),
-      weekdays: _weekdays..sort(),
-      doses: List.from(_doses),
+      days: List.from(_selectedDays),
+      times: timesAsString,
+      status: 'pendiente',
     );
 
-    Navigator.pop(context, med);
+    try {
+      // 1) Guardar en Firestore
+      final docRef = await FirebaseFirestore.instance
+          .collection('medications')
+          .add(med.toMap());
+
+      // 2) Crear una copia con el id del documento recien creado
+      final medWithId = Medication(
+        id: docRef.id,
+        name: med.name,
+        dose: med.dose,
+        presentation: med.presentation,
+        days: med.days,
+        times: med.times,
+        status: med.status,
+      );
+
+      // 3) Volver a la pantalla anterior devolviendo el medicamento
+      if (mounted) {
+        Navigator.pop(context, medWithId);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error al guardar: $e')));
+      }
+    }
   }
 
   @override
@@ -83,7 +122,7 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final weekdayLabels = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+    const dayLabels = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sab', 'Dom'];
 
     return Scaffold(
       appBar: AppBar(title: const Text('Agregar medicamento')),
@@ -94,6 +133,7 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
             key: _formKey,
             child: ListView(
               children: [
+                // --------- Nombre ---------
                 TextFormField(
                   controller: _nameCtrl,
                   decoration: const InputDecoration(
@@ -105,6 +145,8 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
                       : null,
                 ),
                 const SizedBox(height: 12),
+
+                // --------- Dosis ---------
                 TextFormField(
                   controller: _doseCtrl,
                   decoration: const InputDecoration(
@@ -116,6 +158,8 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
                       : null,
                 ),
                 const SizedBox(height: 12),
+
+                // --------- Presentación ---------
                 TextFormField(
                   controller: _presentationCtrl,
                   decoration: const InputDecoration(
@@ -124,6 +168,8 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
+
+                // --------- Días de la semana ---------
                 const Text(
                   'Días de la semana',
                   style: TextStyle(fontWeight: FontWeight.w600),
@@ -131,17 +177,18 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
                 const SizedBox(height: 8),
                 Wrap(
                   spacing: 6,
-                  children: List.generate(7, (index) {
-                    final weekday = index + 1;
-                    final selected = _weekdays.contains(weekday);
-                    return ChoiceChip(
-                      label: Text(weekdayLabels[index]),
-                      selected: selected,
-                      onSelected: (_) => _toggleWeekday(weekday),
-                    );
-                  }),
+                  children: [
+                    for (final label in dayLabels)
+                      ChoiceChip(
+                        label: Text(label),
+                        selected: _selectedDays.contains(label),
+                        onSelected: (_) => _toggleDay(label),
+                      ),
+                  ],
                 ),
                 const SizedBox(height: 16),
+
+                // --------- Horas de toma ---------
                 const Text(
                   'Hora(s) de toma',
                   style: TextStyle(fontWeight: FontWeight.w600),
@@ -149,23 +196,23 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
                 const SizedBox(height: 8),
                 Column(
                   children: [
-                    for (var i = 0; i < _doses.length; i++)
+                    for (var i = 0; i < _times.length; i++)
                       ListTile(
                         contentPadding: EdgeInsets.zero,
                         leading: const Icon(Icons.access_time_rounded),
-                        title: Text(_doses[i].time.format(context)),
+                        title: Text(_times[i].format(context)),
                         onTap: () => _pickTime(i),
                         trailing: IconButton(
                           icon: const Icon(Icons.delete_outline),
-                          onPressed: _doses.length == 1
+                          onPressed: _times.length == 1
                               ? null
-                              : () => _removeDose(i),
+                              : () => _removeTime(i),
                         ),
                       ),
                     Align(
                       alignment: Alignment.centerLeft,
                       child: TextButton.icon(
-                        onPressed: _addDose,
+                        onPressed: _addTime,
                         icon: const Icon(Icons.add),
                         label: const Text('Agregar hora'),
                       ),
@@ -173,6 +220,8 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
                   ],
                 ),
                 const SizedBox(height: 24),
+
+                // --------- Botones ---------
                 Row(
                   children: [
                     Expanded(
@@ -184,7 +233,7 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: FilledButton(
-                        onPressed: _save,
+                        onPressed: _saveMedicationToFirestore,
                         child: const Text('Guardar'),
                       ),
                     ),
