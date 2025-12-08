@@ -7,8 +7,6 @@ import '../widgets/day_strip.dart';
 import '../widgets/medication_card.dart';
 import 'add_medication_screen.dart';
 import 'scan_screen.dart';
-import 'medication_detail_screen.dart';
-import '../services/medication_service.dart'; // Servicio centralizado para Firestore
 
 class HomeScreen extends StatefulWidget {
   static const routeName = '/';
@@ -20,50 +18,34 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  /// Día seleccionado en el calendario superior
   DateTime _selectedDay = DateTime.now();
 
-  /// Devuelve etiqueta de 3 letras para el día de la semana
+  /// Convierte weekday (1–7) a etiqueta "Lun", "Mar", ...
   String _weekdayLabel(int weekday) {
     const labels = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sab', 'Dom'];
     return labels[weekday - 1];
   }
 
-  /// Marca un medicamento como "tomado" usando el servicio
+  /// Marca un medicamento como tomado en Firestore
   Future<void> _markAsTaken(Medication med) async {
     if (med.id == null) return;
-    await MedicationService.markAsTaken(med.id!);
+    await FirebaseFirestore.instance
+        .collection('medications')
+        .doc(med.id!)
+        .update({'status': 'tomado'});
   }
 
-  /// Abre la pantalla para agregar medicamento
-  void _openAddMedication() async {
-    final newMed = await Navigator.push<Medication>(
-      context,
-      MaterialPageRoute(builder: (context) => const AddMedicationScreen()),
-    );
-
-    // Por si la pantalla se cerró durante el await
-    if (!mounted) return;
-
-    if (newMed != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Medicamento guardado correctamente'),
-          duration: Duration(seconds: 2),
-        ),
-      );
-    }
+  /// Elimina un medicamento en Firestore (ya confirmado)
+  Future<void> _deleteMedication(Medication med) async {
+    if (med.id == null) return;
+    await FirebaseFirestore.instance
+        .collection('medications')
+        .doc(med.id!)
+        .delete();
   }
 
-  /// Abre pantalla de escaneo (simulada por ahora)
-  void _openScan() {
-    Navigator.pushNamed(context, ScanScreen.routeName);
-  }
-
-  /// Pregunta al usuario y, si confirma, elimina el medicamento
-  Future<bool> _confirmAndDelete(String? id) async {
-    if (id == null || id.isEmpty) return false;
-
+  /// Confirmar y luego eliminar (para usar con Dismissible)
+  Future<bool> _confirmAndDelete(Medication med) async {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
@@ -85,22 +67,35 @@ class _HomeScreenState extends State<HomeScreen> {
     if (confirm != true) return false;
 
     try {
-      await MedicationService.deleteMedication(id);
-
-      if (!mounted) return true;
-
+      await _deleteMedication(med);
+      if (!mounted) return false;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Medicamento eliminado')));
       return true;
     } catch (e) {
       if (!mounted) return false;
-
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Error al eliminar: $e')));
       return false;
     }
+  }
+
+  /// Abrir pantalla para AGREGAR medicamento
+  void _openAddMedication() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const AddMedicationScreen()),
+    );
+  }
+
+  /// Abrir pantalla de escaneo (simulada)
+  void _openScan() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const ScanScreen()),
+    );
   }
 
   @override
@@ -112,7 +107,7 @@ class _HomeScreenState extends State<HomeScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // ---------- Cabecera ----------
+            // ---------------- HEADER ----------------
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
               child: Row(
@@ -139,9 +134,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
             ),
+
             const SizedBox(height: 8),
 
-            // ---------- Tira de días ----------
+            // ---------------- TIRA DE DÍAS ----------------
             DayStrip(
               selectedDay: _selectedDay,
               onDaySelected: (day) {
@@ -151,7 +147,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
             const SizedBox(height: 12),
 
-            // ---------- Fecha y botones de acción ----------
+            // ---------------- FECHA + BOTONES ----------------
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
@@ -181,7 +177,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
             const SizedBox(height: 4),
 
-            // ---------- Lista reactiva desde Firestore ----------
+            // ---------------- LISTA REACTIVA DESDE FIRESTORE ----------------
             Expanded(
               child: StreamBuilder<QuerySnapshot>(
                 stream: FirebaseFirestore.instance
@@ -194,13 +190,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
                   if (snapshot.hasError) {
                     return Center(
-                      child: Text('Error al cargar datos: ${snapshot.error}'),
+                      child: Text('Error al cargar: ${snapshot.error}'),
                     );
                   }
 
                   final docs = snapshot.data?.docs ?? [];
 
-                  // Convertimos los documentos de Firestore a objetos Medication
                   final meds = docs
                       .map(
                         (d) => Medication.fromMap(
@@ -210,24 +205,23 @@ class _HomeScreenState extends State<HomeScreen> {
                       )
                       .toList();
 
-                  // Construimos la lista de tomas para el día seleccionado
+                  // Compatibilidad: etiquetas nuevas y antiguas
+                  const legacyMap = {
+                    'Lun': 'L',
+                    'Mar': 'M',
+                    'Mié': 'X',
+                    'Jue': 'J',
+                    'Vie': 'V',
+                    'Sab': 'S',
+                    'Dom': 'D',
+                  };
+                  final legacyLabel =
+                      legacyMap[selectedDayLabel] ?? selectedDayLabel;
+
                   final dosesToday = <_DoseItem>[];
 
                   for (final med in meds) {
-                    // Mapa para compatibilidad con el formato antiguo (L, M, X...)
-                    const legacyMap = {
-                      'Lun': 'L',
-                      'Mar': 'M',
-                      'Mié': 'X',
-                      'Jue': 'J',
-                      'Vie': 'V',
-                      'Sab': 'S',
-                      'Dom': 'D',
-                    };
-
-                    final legacyLabel =
-                        legacyMap[selectedDayLabel] ?? selectedDayLabel;
-
+                    // Si el medicamento no aplica para el día seleccionado, se salta
                     if (!med.days.contains(selectedDayLabel) &&
                         !med.days.contains(legacyLabel)) {
                       continue;
@@ -238,7 +232,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     }
                   }
 
-                  // Ordenamos por hora (strings "HH:mm")
+                  // Ordenar por hora "HH:MM"
                   dosesToday.sort((a, b) => a.time.compareTo(b.time));
 
                   final pendingCount = dosesToday
@@ -275,10 +269,10 @@ class _HomeScreenState extends State<HomeScreen> {
                                 itemBuilder: (context, index) {
                                   final item = dosesToday[index];
 
-                                  // Cada tarjeta se puede deslizar para eliminar
                                   return Dismissible(
                                     key: Key(
-                                      item.medication.id ?? index.toString(),
+                                      item.medication.id ??
+                                          '${item.medication.name}-$index',
                                     ),
                                     direction: DismissDirection.endToStart,
                                     background: Container(
@@ -290,16 +284,20 @@ class _HomeScreenState extends State<HomeScreen> {
                                         color: Colors.white,
                                       ),
                                     ),
-                                    confirmDismiss: (direction) =>
-                                        _confirmAndDelete(item.medication.id),
+                                    confirmDismiss: (_) =>
+                                        _confirmAndDelete(item.medication),
                                     child: MedicationCard(
                                       medication: item.medication,
                                       time: item.time,
+                                      // TAP -> EDITAR
                                       onTap: () {
-                                        Navigator.pushNamed(
+                                        Navigator.push(
                                           context,
-                                          MedicationDetailScreen.routeName,
-                                          arguments: item.medication,
+                                          MaterialPageRoute(
+                                            builder: (_) => AddMedicationScreen(
+                                              medication: item.medication,
+                                            ),
+                                          ),
                                         );
                                       },
                                       onTaken: () async {
@@ -333,7 +331,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-/// Estructura interna para representar una "toma" concreta
+/// Item auxiliar: un medicamento + una hora específica
 class _DoseItem {
   final Medication medication;
   final String time;

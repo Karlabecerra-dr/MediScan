@@ -6,7 +6,11 @@ import '../models/medication.dart';
 class AddMedicationScreen extends StatefulWidget {
   static const routeName = '/add-medication';
 
-  const AddMedicationScreen({super.key});
+  /// Si viene null -> estamos creando un medicamento nuevo.
+  /// Si viene con datos -> estamos editando ese medicamento.
+  final Medication? medication;
+
+  const AddMedicationScreen({super.key, this.medication});
 
   @override
   State<AddMedicationScreen> createState() => _AddMedicationScreenState();
@@ -14,18 +18,56 @@ class AddMedicationScreen extends StatefulWidget {
 
 class _AddMedicationScreenState extends State<AddMedicationScreen> {
   final _formKey = GlobalKey<FormState>();
-
   final _nameCtrl = TextEditingController();
   final _doseCtrl = TextEditingController();
   final _presentationCtrl = TextEditingController(text: 'Tableta');
 
-  /// Días seleccionados (L = lunes, M = martes, M = miércoles, …)
-  final List<String> _selectedDays = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sab', 'Dom'];
+  // Días seleccionados (Lun, Mar, Mié, ...)
+  late List<String> _selectedDays;
 
-  /// Horas de toma (inicialmente una a las 08:00)
-  final List<TimeOfDay> _times = [const TimeOfDay(hour: 8, minute: 0)];
+  // Lista de horas de toma
+  late List<TimeOfDay> _times;
 
-  // ---------- Pickers / helpers para la UI ----------
+  bool get _isEditing => widget.medication != null;
+
+  @override
+  void initState() {
+    super.initState();
+
+    const allDays = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sab', 'Dom'];
+
+    final med = widget.medication;
+
+    if (med != null) {
+      // ----- MODO EDICIÓN -----
+      _nameCtrl.text = med.name;
+      _doseCtrl.text = med.dose;
+      _presentationCtrl.text = med.presentation;
+
+      // Si en Firestore no hay días, por si acaso dejamos todos marcados
+      _selectedDays = med.days.isNotEmpty
+          ? List<String>.from(med.days)
+          : List.from(allDays);
+
+      // Convertimos ["08:00", "20:30"] -> List<TimeOfDay>
+      if (med.times.isNotEmpty) {
+        _times = med.times.map(_parseTime).toList();
+      } else {
+        _times = [const TimeOfDay(hour: 8, minute: 0)];
+      }
+    } else {
+      // ----- MODO CREACIÓN -----
+      _selectedDays = List.from(allDays);
+      _times = [const TimeOfDay(hour: 8, minute: 0)];
+    }
+  }
+
+  TimeOfDay _parseTime(String hhmm) {
+    final parts = hhmm.split(':');
+    final hour = int.tryParse(parts[0]) ?? 0;
+    final minute = int.tryParse(parts[1]) ?? 0;
+    return TimeOfDay(hour: hour, minute: minute);
+  }
 
   Future<void> _pickTime(int index) async {
     final selected = await showTimePicker(
@@ -44,7 +86,7 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
   }
 
   void _removeTime(int index) {
-    if (_times.length == 1) return; // siempre dejar al menos una hora
+    if (_times.length == 1) return;
     setState(() {
       _times.removeAt(index);
     });
@@ -60,56 +102,51 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
     });
   }
 
-  // ---------- Guardar en Firestore y devolver a la Home ----------
-
   Future<void> _saveMedicationToFirestore() async {
     if (!_formKey.currentState!.validate()) return;
 
-    // Pasamos TimeOfDay -> "HH:MM"
+    // Lista de horas en formato "HH:MM"
     final timesAsString = _times.map((t) {
       final h = t.hour.toString().padLeft(2, '0');
       final m = t.minute.toString().padLeft(2, '0');
       return '$h:$m';
     }).toList();
 
-    // Objeto base (sin id todavía)
     final med = Medication(
+      id: widget.medication?.id, // si estamos editando, mantenemos el id
       name: _nameCtrl.text.trim(),
       dose: _doseCtrl.text.trim(),
       presentation: _presentationCtrl.text.trim(),
       days: List.from(_selectedDays),
       times: timesAsString,
-      status: 'pendiente',
+      // si estoy editando, mantengo el status actual; si no, parte como 'pendiente'
+      status: widget.medication?.status ?? 'pendiente',
     );
 
-    try {
-      // 1) Guardar en Firestore
-      final docRef = await FirebaseFirestore.instance
-          .collection('medications')
-          .add(med.toMap());
+    final collection = FirebaseFirestore.instance.collection('medications');
 
-      // 2) Crear una copia con el id del documento recien creado
-      final medWithId = Medication(
-        id: docRef.id,
-        name: med.name,
-        dose: med.dose,
-        presentation: med.presentation,
-        days: med.days,
-        times: med.times,
-        status: med.status,
-      );
-
-      // 3) Volver a la pantalla anterior devolviendo el medicamento
-      if (mounted) {
-        Navigator.pop(context, medWithId);
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error al guardar: $e')));
-      }
+    if (med.id != null) {
+      // ----- EDITAR: update al doc existente -----
+      await collection.doc(med.id!).update(med.toMap());
+    } else {
+      // ----- CREAR: nuevo documento -----
+      await collection.add(med.toMap());
     }
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          _isEditing
+              ? 'Medicamento actualizado correctamente'
+              : 'Medicamento guardado correctamente',
+        ),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+
+    Navigator.pop(context);
   }
 
   @override
@@ -125,7 +162,9 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
     const dayLabels = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sab', 'Dom'];
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Agregar medicamento')),
+      appBar: AppBar(
+        title: Text(_isEditing ? 'Editar medicamento' : 'Agregar medicamento'),
+      ),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -133,7 +172,6 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
             key: _formKey,
             child: ListView(
               children: [
-                // --------- Nombre ---------
                 TextFormField(
                   controller: _nameCtrl,
                   decoration: const InputDecoration(
@@ -145,8 +183,6 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
                       : null,
                 ),
                 const SizedBox(height: 12),
-
-                // --------- Dosis ---------
                 TextFormField(
                   controller: _doseCtrl,
                   decoration: const InputDecoration(
@@ -158,8 +194,6 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
                       : null,
                 ),
                 const SizedBox(height: 12),
-
-                // --------- Presentación ---------
                 TextFormField(
                   controller: _presentationCtrl,
                   decoration: const InputDecoration(
@@ -168,8 +202,6 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-
-                // --------- Días de la semana ---------
                 const Text(
                   'Días de la semana',
                   style: TextStyle(fontWeight: FontWeight.w600),
@@ -187,8 +219,6 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
                   ],
                 ),
                 const SizedBox(height: 16),
-
-                // --------- Horas de toma ---------
                 const Text(
                   'Hora(s) de toma',
                   style: TextStyle(fontWeight: FontWeight.w600),
@@ -220,8 +250,6 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
                   ],
                 ),
                 const SizedBox(height: 24),
-
-                // --------- Botones ---------
                 Row(
                   children: [
                     Expanded(
@@ -234,7 +262,7 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
                     Expanded(
                       child: FilledButton(
                         onPressed: _saveMedicationToFirestore,
-                        child: const Text('Guardar'),
+                        child: Text(_isEditing ? 'Guardar cambios' : 'Guardar'),
                       ),
                     ),
                   ],
