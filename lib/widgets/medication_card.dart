@@ -4,6 +4,10 @@ import '../models/medication.dart';
 class MedicationCard extends StatelessWidget {
   final Medication medication;
   final String time;
+
+  /// Estado de ESTA dosis (no del medicamento completo)
+  final bool isTaken;
+
   final VoidCallback onTap;
   final VoidCallback onTaken;
   final VoidCallback onPostpone;
@@ -12,6 +16,7 @@ class MedicationCard extends StatelessWidget {
     super.key,
     required this.medication,
     required this.time,
+    required this.isTaken,
     required this.onTap,
     required this.onTaken,
     required this.onPostpone,
@@ -19,22 +24,9 @@ class MedicationCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    String statusText;
-    Color statusColor;
-
-    switch (medication.status) {
-      case 'tomado':
-        statusText = 'Tomado';
-        statusColor = Colors.green;
-        break;
-      case 'omitido':
-        statusText = 'Omitido';
-        statusColor = Colors.grey;
-        break;
-      default:
-        statusText = 'Pendiente';
-        statusColor = Colors.orange;
-    }
+    // Ahora el estado visual depende de isTaken, no de medication.status
+    final String statusText = isTaken ? 'Tomado' : 'Pendiente';
+    final Color statusColor = isTaken ? Colors.green : Colors.orange;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -47,6 +39,7 @@ class MedicationCard extends StatelessWidget {
             padding: const EdgeInsets.all(12),
             child: Row(
               children: [
+                // Circulito de color
                 Container(
                   width: 40,
                   height: 40,
@@ -58,6 +51,8 @@ class MedicationCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 12),
+
+                // Nombre, dosis, presentación
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -81,6 +76,8 @@ class MedicationCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
+
+                // Chip de estado + botones
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
@@ -107,13 +104,15 @@ class MedicationCard extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         TextButton(
-                          onPressed: onPostpone,
+                          // Si ya está tomado, no tiene sentido posponer
+                          onPressed: isTaken ? null : onPostpone,
                           child: const Text('Posponer'),
                         ),
                         const SizedBox(width: 4),
                         FilledButton(
-                          onPressed: onTaken,
-                          child: const Text('Tomado'),
+                          // Si ya está tomado, deshabilitamos el botón
+                          onPressed: isTaken ? null : onTaken,
+                          child: Text(isTaken ? 'Tomado' : 'Tomar'),
                         ),
                       ],
                     ),

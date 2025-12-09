@@ -1,7 +1,12 @@
+// ========================
+//  NOTIFICATION SERVICE
+//  MediScan – Limpio, optimizado y con vibración fuerte
+// ========================
+
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:flutter/services.dart';
 import 'package:timezone/timezone.dart' as tz;
 
 class NotificationService {
@@ -17,7 +22,10 @@ class NotificationService {
   static const String _channelDescription =
       'Notificaciones de toma de medicamentos';
 
+  // ====== INIT ======
   Future<void> init() async {
+    debugPrint('🔧 Iniciando NotificationService...');
+
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
     const settings = InitializationSettings(android: androidInit);
 
@@ -26,13 +34,15 @@ class NotificationService {
       onDidReceiveNotificationResponse: _onNotificationResponse,
     );
 
-    // Crear canal de notificaciones con audio y vibración
     final androidPlugin = _plugin
         .resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin
         >();
 
     if (androidPlugin != null) {
+      // Solicitar permisos Android 13+
+      await androidPlugin.requestNotificationsPermission();
+
       await androidPlugin.createNotificationChannel(
         AndroidNotificationChannel(
           _channelId,
@@ -41,22 +51,26 @@ class NotificationService {
           importance: Importance.max,
           playSound: true,
           enableVibration: true,
+          vibrationPattern: Int64List.fromList([0, 600, 200, 600]),
           showBadge: true,
         ),
       );
 
-      // Solicitar permisos de notificación
-      await androidPlugin.requestNotificationsPermission();
-      debugPrint('Canal de notificaciones creado y permisos solicitados');
+      debugPrint('✅ Canal de notificaciones creado');
     }
   }
 
+  // ========================================
+  //      MÉTODO PRINCIPAL PARA MEDICINAS
+  // ========================================
   Future<void> scheduleMedication({
     required String medicationId,
     required String name,
     required List<String> days,
     required List<String> times,
   }) async {
+    debugPrint('📅 Programando medicamento: $name');
+
     for (final label in days) {
       final weekday = _weekdayFromLabel(label);
       if (weekday == null) continue;
@@ -70,26 +84,16 @@ class NotificationService {
         final minute = int.tryParse(parts[1]) ?? 0;
 
         final id = _notificationId(medicationId, weekday, i);
-        final scheduledDate = _nextInstanceOfWeekdayTime(weekday, hour, minute);
+        final scheduled = _nextInstanceOfWeekdayTime(weekday, hour, minute);
 
-        final androidDetails = AndroidNotificationDetails(
-          _channelId,
-          _channelName,
-          channelDescription: _channelDescription,
-          importance: Importance.max,
-          priority: Priority.high,
-          playSound: true,
-          enableVibration: true,
-        );
-
-        final notifDetails = NotificationDetails(android: androidDetails);
+        final notifDetails = _defaultDetails();
 
         try {
           await _plugin.zonedSchedule(
             id,
-            'Tomar medicamento',
+            'Tomar medicamento 💊',
             '$name · $t',
-            scheduledDate,
+            scheduled,
             notifDetails,
             androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
             payload: jsonEncode({
@@ -98,37 +102,117 @@ class NotificationService {
               'time': t,
             }),
           );
-          debugPrint('✓ Notificación programada para $scheduledDate (ID: $id)');
+          debugPrint('✅ Notificación programada para ID $id → $scheduled');
         } catch (e) {
-          debugPrint('✗ Error al programar notificación: $e');
+          debugPrint('❌ Error exactAllowWhileIdle → $e');
         }
       }
     }
+
+    await _printPendingNotifications();
   }
 
+  // ============================
+  //     DETALLES DE NOTIFICACIÓN
+  // ============================
+  NotificationDetails _defaultDetails() {
+    return NotificationDetails(
+      android: AndroidNotificationDetails(
+        _channelId,
+        _channelName,
+        channelDescription: _channelDescription,
+        importance: Importance.max,
+        priority: Priority.high,
+        playSound: true,
+        enableVibration: true,
+        vibrationPattern: Int64List.fromList([
+          0, // espera inicial
+          1200, // vibra 1.2s
+          300, // pausa
+          1500, // vibra 1.5s
+        ]),
+        ticker: 'Recordatorio de medicamento',
+        styleInformation: const BigTextStyleInformation(''),
+      ),
+    );
+  }
+
+  // ============================
+  //     NOTIFICACIÓN DE PRUEBA
+  // ============================
+  Future<void> showImmediateTestNotification({
+    required String medicationId,
+    required String name,
+  }) async {
+    final id = (medicationId.hashCode & 0x7fffffff) ^ 9999;
+
+    await _plugin.show(
+      id,
+      'Test inmediato 💊',
+      '$name – ${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}',
+      _defaultDetails(),
+    );
+
+    debugPrint('✅ Notificación inmediata enviada');
+  }
+
+  Future<void> scheduleTestNotification({
+    required String medicationId,
+    required String name,
+    int seconds = 10,
+  }) async {
+    final id = (medicationId.hashCode & 0x7fffffff) ^ seconds;
+
+    final scheduled = tz.TZDateTime.now(
+      tz.local,
+    ).add(Duration(seconds: seconds));
+
+    await _plugin.zonedSchedule(
+      id,
+      '⏱ Test programado',
+      '$name – suena en $seconds segundos',
+      scheduled,
+      _defaultDetails(),
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+    );
+
+    debugPrint('🧪 Notificación programada → $scheduled');
+  }
+
+  // ============================
+  //         CANCELAR
+  // ============================
   Future<void> cancelMedicationNotifications(String medicationId) async {
+    debugPrint('🗑 Cancelando notificaciones de $medicationId');
+
     for (var weekday = 1; weekday <= 7; weekday++) {
       for (var i = 0; i < 10; i++) {
         final id = _notificationId(medicationId, weekday, i);
-        try {
-          await _plugin.cancel(id);
-        } catch (e) {
-          debugPrint('Error al cancelar notificación $id: $e');
-        }
+        await _plugin.cancel(id);
       }
     }
+
+    await _printPendingNotifications();
   }
 
+  // ============================
+  //       CALLBACK DE TAP
+  // ============================
   Future<void> _onNotificationResponse(NotificationResponse response) async {
     final payload = response.payload;
     if (payload == null) return;
 
     try {
-      // Aquí puedes manejar acciones futuras (marcar como tomado, posponer, etc.)
-      // jsonDecode(payload) as Map<String, dynamic>;
-    } catch (_) {}
+      final data = jsonDecode(payload);
+      debugPrint('🔔 Notificación tocada → ${data['name']}');
+    } catch (e) {
+      debugPrint('⚠ Payload inválido: $e');
+    }
   }
 
+  // ===================================
+  //      HELPERS INTERNOS
+  // ===================================
   int? _weekdayFromLabel(String label) {
     switch (label) {
       case 'Lun':
@@ -146,7 +230,7 @@ class NotificationService {
       case 'Vie':
       case 'V':
         return DateTime.friday;
-      case 'Sab':
+      case 'Sáb':
       case 'S':
         return DateTime.saturday;
       case 'Dom':
@@ -158,99 +242,8 @@ class NotificationService {
   }
 
   int _notificationId(String medId, int weekday, int index) {
-    // Asegurar ID no negativo y dentro de 32 bits para evitar problemas en Android
     final base = medId.hashCode & 0x7fffffff;
     return base ^ (weekday * 100 + index);
-  }
-
-  /// Método de ayuda para pruebas: programa una notificación única dentro de [seconds]
-  Future<void> scheduleTestNotification({
-    required String medicationId,
-    required String name,
-    int seconds = 10,
-  }) async {
-    final id = (medicationId.hashCode & 0x7fffffff) ^ seconds;
-    final scheduled = tz.TZDateTime.now(
-      tz.local,
-    ).add(Duration(seconds: seconds));
-
-    final androidDetails = AndroidNotificationDetails(
-      _channelId,
-      _channelName,
-      channelDescription: _channelDescription,
-      importance: Importance.max,
-      priority: Priority.high,
-      playSound: true,
-      enableVibration: true,
-    );
-
-    final notifDetails = NotificationDetails(android: androidDetails);
-
-    try {
-      await _plugin.zonedSchedule(
-        id,
-        'Test: Tomar medicamento',
-        name,
-        scheduled,
-        notifDetails,
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        payload: jsonEncode({'medicationId': medicationId, 'name': name}),
-      );
-      debugPrint(
-        '✓ Notificación de prueba programada para $scheduled (ID: $id)',
-      );
-    } catch (e) {
-      debugPrint('✗ Error al programar notificación de prueba: $e');
-      // Fallback: si las alarmas exactas no están permitidas, mostrar una
-      // notificación inmediata para ayudar en pruebas locales.
-      if (e is PlatformException && e.code == 'exact_alarms_not_permitted') {
-        try {
-          await _plugin.show(
-            id,
-            'Test: Tomar medicamento',
-            name,
-            notifDetails,
-            payload: jsonEncode({'medicationId': medicationId, 'name': name}),
-          );
-          debugPrint('✓ Fallback: notificación inmediata mostrada (ID: $id)');
-        } catch (showErr) {
-          debugPrint('✗ Error mostrando notificación de fallback: $showErr');
-        }
-      }
-    }
-  }
-
-  /// Muestra inmediatamente una notificación (útil para pruebas rápidas)
-  Future<void> showImmediateTestNotification({
-    required String medicationId,
-    required String name,
-  }) async {
-    final id = (medicationId.hashCode & 0x7fffffff) ^ 9999;
-
-    final androidDetails = AndroidNotificationDetails(
-      _channelId,
-      _channelName,
-      channelDescription: _channelDescription,
-      importance: Importance.max,
-      priority: Priority.high,
-      playSound: true,
-      enableVibration: true,
-    );
-
-    final notifDetails = NotificationDetails(android: androidDetails);
-
-    try {
-      await _plugin.show(
-        id,
-        'Test inmediato: Tomar medicamento',
-        name,
-        notifDetails,
-        payload: jsonEncode({'medicationId': medicationId, 'name': name}),
-      );
-      debugPrint('✓ Notificación inmediata mostrada (ID: $id)');
-    } catch (e) {
-      debugPrint('✗ Error al mostrar notificación inmediata: $e');
-    }
   }
 
   tz.TZDateTime _nextInstanceOfWeekdayTime(int weekday, int hour, int minute) {
@@ -269,5 +262,13 @@ class NotificationService {
     }
 
     return scheduled;
+  }
+
+  Future<void> _printPendingNotifications() async {
+    final pending = await _plugin.pendingNotificationRequests();
+    debugPrint('📊 Notificaciones pendientes: ${pending.length}');
+    for (final n in pending) {
+      debugPrint('   → ID ${n.id} | ${n.title}');
+    }
   }
 }

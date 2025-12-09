@@ -7,6 +7,7 @@ import '../widgets/day_strip.dart';
 import '../widgets/medication_card.dart';
 import 'add_medication_screen.dart';
 import 'scan_screen.dart';
+import '../services/notification_service.dart';
 
 class HomeScreen extends StatefulWidget {
   static const routeName = '/';
@@ -22,26 +23,42 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// Convierte weekday (1–7) a etiqueta "Lun", "Mar", ...
   String _weekdayLabel(int weekday) {
-    const labels = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sab', 'Dom'];
+    const labels = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
     return labels[weekday - 1];
   }
 
-  /// Marca un medicamento como tomado en Firestore
-  Future<void> _markAsTaken(Medication med) async {
-    if (med.id == null) return;
-    await FirebaseFirestore.instance
-        .collection('medications')
-        .doc(med.id!)
-        .update({'status': 'tomado'});
+  /// Clave para el mapa `taken` de un medicamento
+  /// Formato: YYYY-MM-DD_HH:MM
+  String _takenKeyFor(DateTime day, String time) {
+    final dateStr = DateFormat('yyyy-MM-dd').format(day);
+    return '${dateStr}_$time';
   }
 
-  /// Elimina un medicamento en Firestore (ya confirmado)
-  Future<void> _deleteMedication(Medication med) async {
+  /// Marca **solo ESTA TOMA** como "tomada" en Firestore usando el mapa `taken`
+  Future<void> _markAsTaken(Medication med, String time) async {
     if (med.id == null) return;
+
+    final key = _takenKeyFor(_selectedDay, time);
+
     await FirebaseFirestore.instance
         .collection('medications')
         .doc(med.id!)
-        .delete();
+        .update({
+          'taken.$key': true, // Firestore: actualización puntual en el mapa
+        });
+  }
+
+  /// Elimina un medicamento en Firestore Y cancela sus notificaciones
+  Future<void> _deleteMedication(Medication med) async {
+    if (med.id == null) return;
+
+    final id = med.id!;
+
+    // 1) Borrar el documento en Firestore
+    await FirebaseFirestore.instance.collection('medications').doc(id).delete();
+
+    // 2) Cancelar TODAS las notificaciones asociadas a este medicamento
+    await NotificationService().cancelMedicationNotifications(id);
   }
 
   /// Confirmar y luego eliminar (para usar con Dismissible)
@@ -82,7 +99,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// Abrir pantalla para AGREGAR medicamento
   void _openAddMedication() {
     Navigator.push(
       context,
@@ -90,7 +106,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// Abrir pantalla de escaneo (simulada)
   void _openScan() {
     Navigator.push(
       context,
@@ -119,6 +134,13 @@ class _HomeScreenState extends State<HomeScreen> {
                       width: 40,
                       height: 40,
                       fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return const Icon(
+                          Icons.local_hospital,
+                          size: 40,
+                          color: Colors.blue,
+                        );
+                      },
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -127,9 +149,35 @@ class _HomeScreenState extends State<HomeScreen> {
                     style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                   const Spacer(),
+
+                  // Botón de PRUEBA de notificaciones (puedes quitarlo después)
                   IconButton(
-                    onPressed: () {},
-                    icon: const Icon(Icons.notifications_none_rounded),
+                    icon: const Icon(
+                      Icons.notifications_active_rounded,
+                      color: Colors.orange,
+                    ),
+                    tooltip: 'Probar notificaciones',
+                    onPressed: () async {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            '🚀 Ejecutando pruebas de notificación...',
+                          ),
+                          duration: Duration(seconds: 2),
+                        ),
+                      );
+
+                      await NotificationService().showImmediateTestNotification(
+                        medicationId: 'test1',
+                        name: 'Prueba Inmediata',
+                      );
+
+                      await NotificationService().scheduleTestNotification(
+                        medicationId: 'test2',
+                        name: 'Prueba 10 seg',
+                        seconds: 10,
+                      );
+                    },
                   ),
                 ],
               ),
@@ -213,6 +261,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     'Jue': 'J',
                     'Vie': 'V',
                     'Sab': 'S',
+                    'Sáb': 'S',
                     'Dom': 'D',
                   };
                   final legacyLabel =
@@ -228,15 +277,21 @@ class _HomeScreenState extends State<HomeScreen> {
                     }
 
                     for (final t in med.times) {
-                      dosesToday.add(_DoseItem(medication: med, time: t));
+                      final key = _takenKeyFor(_selectedDay, t);
+                      final isTaken = med.taken[key] == true;
+
+                      dosesToday.add(
+                        _DoseItem(medication: med, time: t, isTaken: isTaken),
+                      );
                     }
                   }
 
                   // Ordenar por hora "HH:MM"
                   dosesToday.sort((a, b) => a.time.compareTo(b.time));
 
+                  // Ahora "pendiente" es por dosis, no por medicamento completo
                   final pendingCount = dosesToday
-                      .where((d) => d.medication.status == 'pendiente')
+                      .where((d) => !d.isTaken)
                       .length;
 
                   final headerSubtitle = 'Hoy · $pendingCount tomas pendientes';
@@ -289,7 +344,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     child: MedicationCard(
                                       medication: item.medication,
                                       time: item.time,
-                                      // TAP -> EDITAR
+                                      isTaken: item.isTaken, // 👈 NUEVO
                                       onTap: () {
                                         Navigator.push(
                                           context,
@@ -301,7 +356,10 @@ class _HomeScreenState extends State<HomeScreen> {
                                         );
                                       },
                                       onTaken: () async {
-                                        await _markAsTaken(item.medication);
+                                        await _markAsTaken(
+                                          item.medication,
+                                          item.time,
+                                        );
                                       },
                                       onPostpone: () {
                                         ScaffoldMessenger.of(
@@ -331,10 +389,15 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-/// Item auxiliar: un medicamento + una hora específica
+/// Helper interno para la lista de tomas del día
 class _DoseItem {
   final Medication medication;
   final String time;
+  final bool isTaken;
 
-  _DoseItem({required this.medication, required this.time});
+  _DoseItem({
+    required this.medication,
+    required this.time,
+    required this.isTaken,
+  });
 }
