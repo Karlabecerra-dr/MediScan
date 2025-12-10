@@ -366,7 +366,7 @@ class _MedicationDetailScreenState extends State<MedicationDetailScreen> {
                           ],
                         ),
                       );
-                    }).toList(),
+                    }),
                   ],
                 ),
               ),

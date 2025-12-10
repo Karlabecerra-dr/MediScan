@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
 class DayStrip extends StatelessWidget {
   final DateTime selectedDay;

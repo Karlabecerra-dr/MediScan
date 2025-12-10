@@ -7,14 +7,13 @@ import 'package:timezone/timezone.dart' as tz;
 
 import 'firebase_options.dart';
 
-// 👉 Imports de tus pantallas y modelo
+// Imports de pantallas y modelo
 import 'models/medication.dart';
 import 'screens/home_screen.dart';
 import 'screens/add_medication_screen.dart';
-import 'screens/scan_screen.dart';
 import 'screens/medication_detail_screen.dart';
 
-// 🔔 IMPORTANTE: Importar el servicio de notificaciones
+// IMPORTANTE: Importar el servicio de notificaciones
 import 'services/notification_service.dart';
 
 Future<void> main() async {
@@ -26,7 +25,7 @@ Future<void> main() async {
   // Cargar datos de formato de fechas en español
   await initializeDateFormatting('es');
 
-  // 🔔 2. INICIALIZAR TIMEZONE (Obligatorio para que funcionen las alarmas)
+  // 2. INICIALIZAR TIMEZONE (Obligatorio para que funcionen las alarmas)
   tz.initializeTimeZones();
 
   // Configuración para Chile (Correcto para Talca/Santiago)
