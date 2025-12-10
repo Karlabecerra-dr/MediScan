@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 class ScanScreen extends StatefulWidget {
+  static const routeName = '/scan';
+
   const ScanScreen({super.key});
 
   @override

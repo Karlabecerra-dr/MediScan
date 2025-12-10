@@ -1,13 +1,11 @@
-// ========================
-//  NOTIFICATION SERVICE
-//  MediScan – vibración fuerte + sonido personalizado
-// ========================
-
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+
 import 'package:timezone/timezone.dart' as tz;
+import 'package:timezone/data/latest_all.dart' as tzdata;
 
 class NotificationService {
   NotificationService._internal();
@@ -23,9 +21,32 @@ class NotificationService {
   static const String _channelDescription =
       'Notificaciones de toma de medicamentos';
 
+  bool _initialized = false;
+  bool _tzInitialized = false;
+
+  // ====== TIMEZONE ======
+  Future<void> _ensureTimeZoneInitialized() async {
+    if (_tzInitialized) return;
+
+    // Inicializa todas las zonas horarias conocidas
+    tzdata.initializeTimeZones();
+
+    // Para Chile continental usamos America/Santiago
+    const String timeZoneName = 'America/Santiago';
+    tz.setLocalLocation(tz.getLocation(timeZoneName));
+
+    _tzInitialized = true;
+    debugPrint('🕒 Timezone inicializado: $timeZoneName');
+  }
+
   // ====== INIT ======
   Future<void> init() async {
+    if (_initialized) return;
+
     debugPrint('🔧 Iniciando NotificationService...');
+
+    // IMPORTANTE: inicializar timezone antes de usar tz.local
+    await _ensureTimeZoneInitialized();
 
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
     const settings = InitializationSettings(android: androidInit);
@@ -61,6 +82,8 @@ class NotificationService {
 
       debugPrint('✅ Canal de notificaciones creado ($_channelId)');
     }
+
+    _initialized = true;
   }
 
   // ========================================
@@ -72,6 +95,8 @@ class NotificationService {
     required List<String> days,
     required List<String> times,
   }) async {
+    await init(); // 👈 asegura plugin + timezone
+
     debugPrint('📅 Programando medicamento: $name');
     debugPrint('   Días: $days');
     debugPrint('   Horas: $times');
@@ -149,6 +174,8 @@ class NotificationService {
     required String medicationId,
     required String name,
   }) async {
+    await init();
+
     final id = (medicationId.hashCode & 0x7fffffff) ^ 9999;
 
     await _plugin.show(
@@ -167,6 +194,8 @@ class NotificationService {
     required String name,
     int seconds = 10,
   }) async {
+    await init();
+
     final id = (medicationId.hashCode & 0x7fffffff) ^ seconds;
 
     final scheduled = tz.TZDateTime.now(
@@ -190,6 +219,8 @@ class NotificationService {
   //         CANCELAR
   // ============================
   Future<void> cancelMedicationNotifications(String medicationId) async {
+    await init();
+
     debugPrint('🗑 Cancelando notificaciones de $medicationId');
 
     for (var weekday = 1; weekday <= 7; weekday++) {

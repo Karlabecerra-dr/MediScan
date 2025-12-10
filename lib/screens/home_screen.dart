@@ -1,16 +1,20 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../models/medication.dart';
 import '../widgets/day_strip.dart';
 import '../widgets/medication_card.dart';
-import 'add_medication_screen.dart';
 import '../services/notification_service.dart';
+
+import 'add_medication_screen.dart';
+import 'scan_screen.dart';
 import 'medication_detail_screen.dart';
+import 'login_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  static const routeName = '/';
+  static const routeName = '/home';
 
   const HomeScreen({super.key});
 
@@ -43,10 +47,7 @@ class _HomeScreenState extends State<HomeScreen> {
     await FirebaseFirestore.instance
         .collection('medications')
         .doc(med.id!)
-        .update({
-          'taken.$key': true, // se marca solo esta toma
-          'status': 'tomado', // opcional: estado global
-        });
+        .update({'taken.$key': true});
   }
 
   /// Elimina un medicamento en Firestore Y cancela sus notificaciones
@@ -56,7 +57,6 @@ class _HomeScreenState extends State<HomeScreen> {
     final id = med.id!;
 
     await FirebaseFirestore.instance.collection('medications').doc(id).delete();
-
     await NotificationService().cancelMedicationNotifications(id);
   }
 
@@ -105,9 +105,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// Escanear DESDE HOME:
-  /// abrimos directamente la pantalla de agregar medicamento
-  /// con autoScanOnOpen = true para que se abra la cámara al entrar.
   void _openScan() {
     Navigator.push(
       context,
@@ -121,6 +118,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final dateLabel = DateFormat('EEE, d MMM', 'es').format(_selectedDay);
     final selectedDayLabel = _weekdayLabel(_selectedDay.weekday);
+    final user = FirebaseAuth.instance.currentUser;
 
     return Scaffold(
       body: SafeArea(
@@ -153,6 +151,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                   const Spacer(),
+
+                  // Botón de prueba de notificaciones
                   IconButton(
                     icon: const Icon(
                       Icons.notifications_active_rounded,
@@ -179,6 +179,19 @@ class _HomeScreenState extends State<HomeScreen> {
                         name: 'Prueba 10 seg',
                         seconds: 10,
                       );
+                    },
+                  ),
+
+                  // Cerrar sesión
+                  IconButton(
+                    icon: const Icon(Icons.logout),
+                    tooltip: 'Cerrar sesión',
+                    onPressed: () async {
+                      await FirebaseAuth.instance.signOut();
+                      if (!mounted) return;
+                      Navigator.of(
+                        context,
+                      ).pushReplacementNamed(LoginScreen.routeName);
                     },
                   ),
                 ],
@@ -227,164 +240,178 @@ class _HomeScreenState extends State<HomeScreen> {
 
             const SizedBox(height: 4),
 
-            // ---------------- LISTA REACTIVA DESDE FIRESTORE ----------------
-            Expanded(
-              child: StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance
-                    .collection('medications')
-                    .snapshots(),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-
-                  if (snapshot.hasError) {
-                    return Center(
-                      child: Text('Error al cargar: ${snapshot.error}'),
-                    );
-                  }
-
-                  final docs = snapshot.data?.docs ?? [];
-
-                  final meds = docs
-                      .map(
-                        (d) => Medication.fromMap(
-                          d.data() as Map<String, dynamic>,
-                          id: d.id,
-                        ),
-                      )
-                      .toList();
-
-                  // Compatibilidad: etiquetas nuevas y antiguas
-                  const legacyMap = {
-                    'Lun': 'L',
-                    'Mar': 'M',
-                    'Mié': 'X',
-                    'Jue': 'J',
-                    'Vie': 'V',
-                    'Sab': 'S',
-                    'Sáb': 'S',
-                    'Dom': 'D',
-                  };
-                  final legacyLabel =
-                      legacyMap[selectedDayLabel] ?? selectedDayLabel;
-
-                  final dosesToday = <_DoseItem>[];
-
-                  for (final med in meds) {
-                    // Si el medicamento no aplica para el día seleccionado, se salta
-                    if (!med.days.contains(selectedDayLabel) &&
-                        !med.days.contains(legacyLabel)) {
-                      continue;
+            // ---------------- CONTENIDO PRINCIPAL ----------------
+            if (user == null)
+              const Expanded(
+                child: Center(
+                  child: Text(
+                    'No hay usuario autenticado.\nVuelve a iniciar sesión.',
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              )
+            else
+              Expanded(
+                child: StreamBuilder<QuerySnapshot>(
+                  stream: FirebaseFirestore.instance
+                      .collection('medications')
+                      .where('userId', isEqualTo: user.uid)
+                      .snapshots(),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
                     }
 
-                    for (final t in med.times) {
-                      final key = _takenKeyFor(_selectedDay, t);
-                      final isTaken = med.taken[key] == true;
-
-                      dosesToday.add(
-                        _DoseItem(medication: med, time: t, isTaken: isTaken),
+                    if (snapshot.hasError) {
+                      return Center(
+                        child: Text('Error al cargar: ${snapshot.error}'),
                       );
                     }
-                  }
 
-                  // Ordenar por hora "HH:MM"
-                  dosesToday.sort((a, b) => a.time.compareTo(b.time));
+                    final docs = snapshot.data?.docs ?? [];
 
-                  // Pendientes por dosis, no por medicamento completo
-                  final pendingCount = dosesToday
-                      .where((d) => !d.isTaken)
-                      .length;
+                    final meds = docs
+                        .map(
+                          (d) => Medication.fromMap(
+                            d.data() as Map<String, dynamic>,
+                            id: d.id,
+                          ),
+                        )
+                        .toList();
 
-                  final headerSubtitle = 'Hoy · $pendingCount tomas pendientes';
+                    // Compatibilidad: etiquetas nuevas y antiguas
+                    const legacyMap = {
+                      'Lun': 'L',
+                      'Mar': 'M',
+                      'Mié': 'X',
+                      'Jue': 'J',
+                      'Vie': 'V',
+                      'Sab': 'S',
+                      'Sáb': 'S',
+                      'Dom': 'D',
+                    };
+                    final legacyLabel =
+                        legacyMap[selectedDayLabel] ?? selectedDayLabel;
 
-                  return Column(
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            headerSubtitle,
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.grey.shade700,
+                    final dosesToday = <_DoseItem>[];
+
+                    for (final med in meds) {
+                      // Si el medicamento no aplica para el día seleccionado, se salta
+                      if (!med.days.contains(selectedDayLabel) &&
+                          !med.days.contains(legacyLabel)) {
+                        continue;
+                      }
+
+                      for (final t in med.times) {
+                        final key = _takenKeyFor(_selectedDay, t);
+                        final isTaken = med.taken[key] == true;
+
+                        dosesToday.add(
+                          _DoseItem(medication: med, time: t, isTaken: isTaken),
+                        );
+                      }
+                    }
+
+                    // Ordenar por hora "HH:MM"
+                    dosesToday.sort((a, b) => a.time.compareTo(b.time));
+
+                    // Pendientes por dosis, no por medicamento completo
+                    final pendingCount = dosesToday
+                        .where((d) => !d.isTaken)
+                        .length;
+
+                    final headerSubtitle =
+                        'Hoy · $pendingCount tomas pendientes';
+
+                    return Column(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              headerSubtitle,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey.shade700,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      Expanded(
-                        child: dosesToday.isEmpty
-                            ? const Center(
-                                child: Text(
-                                  'No hay tomas para este día.\nPulsa "Agregar" para registrar un medicamento.',
-                                  textAlign: TextAlign.center,
-                                ),
-                              )
-                            : ListView.builder(
-                                itemCount: dosesToday.length,
-                                itemBuilder: (context, index) {
-                                  final item = dosesToday[index];
+                        Expanded(
+                          child: dosesToday.isEmpty
+                              ? const Center(
+                                  child: Text(
+                                    'No hay tomas para este día.\nPulsa "Agregar" para registrar un medicamento.',
+                                    textAlign: TextAlign.center,
+                                  ),
+                                )
+                              : ListView.builder(
+                                  itemCount: dosesToday.length,
+                                  itemBuilder: (context, index) {
+                                    final item = dosesToday[index];
 
-                                  return Dismissible(
-                                    key: Key(
-                                      item.medication.id ??
-                                          '${item.medication.name}-$index',
-                                    ),
-                                    direction: DismissDirection.endToStart,
-                                    background: Container(
-                                      alignment: Alignment.centerRight,
-                                      padding: const EdgeInsets.only(right: 16),
-                                      color: Colors.redAccent,
-                                      child: const Icon(
-                                        Icons.delete,
-                                        color: Colors.white,
+                                    return Dismissible(
+                                      key: Key(
+                                        item.medication.id ??
+                                            '${item.medication.name}-$index',
                                       ),
-                                    ),
-                                    confirmDismiss: (_) =>
-                                        _confirmAndDelete(item.medication),
-                                    child: MedicationCard(
-                                      medication: item.medication,
-                                      time: item.time,
-                                      isTaken: item.isTaken,
-                                      onTap: () {
-                                        Navigator.push(
-                                          context,
-                                          MaterialPageRoute(
-                                            builder: (_) =>
-                                                MedicationDetailScreen(
-                                                  medication: item.medication,
-                                                ),
-                                          ),
-                                        );
-                                      },
-                                      onTaken: () async {
-                                        await _markAsTaken(
-                                          item.medication,
-                                          item.time,
-                                        );
-                                      },
-                                      onPostpone: () {
-                                        ScaffoldMessenger.of(
-                                          context,
-                                        ).showSnackBar(
-                                          const SnackBar(
-                                            content: Text(
-                                              'Recordatorio pospuesto 5 minutos',
+                                      direction: DismissDirection.endToStart,
+                                      background: Container(
+                                        alignment: Alignment.centerRight,
+                                        padding: const EdgeInsets.only(
+                                          right: 16,
+                                        ),
+                                        color: Colors.redAccent,
+                                        child: const Icon(
+                                          Icons.delete,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                      confirmDismiss: (_) =>
+                                          _confirmAndDelete(item.medication),
+                                      child: MedicationCard(
+                                        medication: item.medication,
+                                        time: item.time,
+                                        isTaken: item.isTaken,
+                                        onTap: () {
+                                          Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (_) =>
+                                                  MedicationDetailScreen(
+                                                    medication: item.medication,
+                                                  ),
                                             ),
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                  );
-                                },
-                              ),
-                      ),
-                    ],
-                  );
-                },
+                                          );
+                                        },
+                                        onTaken: () async {
+                                          await _markAsTaken(
+                                            item.medication,
+                                            item.time,
+                                          );
+                                        },
+                                        onPostpone: () {
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
+                                            const SnackBar(
+                                              content: Text(
+                                                'Recordatorio pospuesto 5 minutos',
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                    );
+                                  },
+                                ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
               ),
-            ),
           ],
         ),
       ),

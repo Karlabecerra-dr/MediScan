@@ -47,6 +47,7 @@ class _MedicationDetailScreenState extends State<MedicationDetailScreen> {
 
     try {
       if (medication.id != null) {
+        // Cancelar notificaciones asociadas
         await NotificationService().cancelMedicationNotifications(
           medication.id!,
         );
@@ -89,47 +90,16 @@ class _MedicationDetailScreenState extends State<MedicationDetailScreen> {
       MaterialPageRoute(
         builder: (_) => AddMedicationScreen(medication: medication),
       ),
-    );
-    // 👆 sin Navigator.pop en el then, así volvemos a esta pantalla
+    ).then((_) {
+      // No recargamos nada aquí porque los cambios
+      // se verán al volver al Home. En esta pantalla
+      // preferimos mantener la versión "local".
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    // Si el medicamento no tiene id (caso raro), usamos la versión estática
-    if (widget.medication.id == null) {
-      return _buildScaffold(context, widget.medication);
-    }
-
-    final docRef = FirebaseFirestore.instance
-        .collection('medications')
-        .doc(widget.medication.id);
-
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: docRef.snapshots(),
-      builder: (ctx, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return Scaffold(
-            appBar: AppBar(title: Text(widget.medication.name)),
-            body: const Center(child: CircularProgressIndicator()),
-          );
-        }
-
-        if (!snapshot.hasData || !snapshot.data!.exists) {
-          return Scaffold(
-            appBar: AppBar(title: Text(widget.medication.name)),
-            body: const Center(child: Text('Este medicamento ya no existe.')),
-          );
-        }
-
-        final data = snapshot.data!.data()!;
-        final med = Medication.fromMap(data, id: snapshot.data!.id);
-
-        return _buildScaffold(ctx, med);
-      },
-    );
-  }
-
-  Widget _buildScaffold(BuildContext context, Medication medication) {
+    final medication = widget.medication;
     final theme = Theme.of(context);
 
     final String descriptionText;
@@ -138,17 +108,6 @@ class _MedicationDetailScreenState extends State<MedicationDetailScreen> {
       descriptionText = 'Sin descripción registrada';
     } else {
       descriptionText = medication.description!.trim();
-    }
-
-    // Texto que queremos mostrar para el ID de medicamento
-    final String medIdText;
-    final bool hasMedId =
-        medication.medId != null && medication.medId!.trim().isNotEmpty;
-
-    if (hasMedId) {
-      medIdText = medication.medId!.trim();
-    } else {
-      medIdText = '—'; // cuadro “vacío” cuando no hay ID
     }
 
     return Scaffold(
@@ -247,35 +206,31 @@ class _MedicationDetailScreenState extends State<MedicationDetailScreen> {
               ),
             ),
 
-            const SizedBox(height: 16),
-
-            // 🔹 ID de medicamento (MedID SIEMPRE visible, vacío si no hay)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'ID de medicamento',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.grey,
+            // ID del medicamento (solo si existe medId)
+            if (medication.medId != null &&
+                medication.medId!.trim().isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.qr_code_2, size: 22, color: Colors.grey),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'ID de medicamento: ${medication.medId}',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      medIdText,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: hasMedId ? Colors.black : Colors.grey[600],
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
+            ],
 
             const SizedBox(height: 16),
 
@@ -366,7 +321,7 @@ class _MedicationDetailScreenState extends State<MedicationDetailScreen> {
                           ],
                         ),
                       );
-                    }),
+                    }).toList(),
                   ],
                 ),
               ),

@@ -1,33 +1,33 @@
 class Medication {
-  final String? id; // ID del doc en Firestore (interno)
-  final String? medId; // ID de escaneo / código de barras (opcional)
+  final String? id; // id de Firestore
+  final String? userId; // dueño del medicamento
+  final String? medId; // ID escaneado (código de barras)
   final String name;
   final String dose;
   final String presentation;
-  final List<String> days; // ["Lun", "Mar", ...]
-  final List<String> times; // ["08:00", "20:00"]
-  final String status; // "pendiente", "tomado", "omitido"
-  final String? description; // Texto libre opcional
-
-  /// Mapa de tomas realizadas por fecha y hora:
-  /// clave: "YYYY-MM-DD_HH:MM" -> true si ya fue tomada
-  final Map<String, bool> taken;
+  final List<String> days; // ['Lun', 'Mar', ...]
+  final List<String> times; // ['08:00', '20:00', ...]
+  final String status; // 'pendiente', 'tomado', etc.
+  final String? description;
+  final Map<String, bool> taken; // clave: "yyyy-MM-dd HH:mm", valor: true/false
 
   Medication({
     this.id,
+    this.userId,
     this.medId,
     required this.name,
     required this.dose,
     required this.presentation,
     required this.days,
     required this.times,
-    this.status = 'pendiente',
+    required this.status,
     this.description,
-    this.taken = const {},
+    required this.taken,
   });
 
   Map<String, dynamic> toMap() {
     return {
+      'userId': userId,
       'medId': medId,
       'name': name,
       'dose': dose,
@@ -43,13 +43,14 @@ class Medication {
   factory Medication.fromMap(Map<String, dynamic> map, {String? id}) {
     return Medication(
       id: id,
+      userId: map['userId'] as String?,
       medId: map['medId'] as String?,
-      name: map['name'] ?? '',
-      dose: map['dose'] ?? '',
-      presentation: map['presentation'] ?? '',
-      days: List<String>.from(map['days'] ?? []),
-      times: List<String>.from(map['times'] ?? []),
-      status: map['status'] ?? 'pendiente',
+      name: map['name'] as String? ?? '',
+      dose: map['dose'] as String? ?? '',
+      presentation: map['presentation'] as String? ?? 'Tableta',
+      days: List<String>.from(map['days'] ?? const []),
+      times: List<String>.from(map['times'] ?? const []),
+      status: map['status'] as String? ?? 'pendiente',
       description: map['description'] as String?,
       taken: Map<String, bool>.from(map['taken'] ?? {}),
     );

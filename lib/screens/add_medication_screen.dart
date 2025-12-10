@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import '../models/medication.dart';
 import '../services/notification_service.dart';
@@ -36,10 +37,7 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
   // ---- MODO INTERVALO "Cada X horas" ----
   bool _intervalMode = false; // false = Horas específicas
   int _intervalHours = 8; // 4, 6, 8, 12...
-  TimeOfDay _intervalStart = const TimeOfDay(
-    hour: 8,
-    minute: 0,
-  ); // hora inicial para el intervalo
+  TimeOfDay _intervalStart = const TimeOfDay(hour: 8, minute: 0);
 
   bool get _isEditing => widget.medication != null;
 
@@ -72,7 +70,6 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
         _times = [const TimeOfDay(hour: 8, minute: 0)];
       }
 
-      // En edición dejamos por defecto "Horas específicas"
       _intervalMode = false;
       _intervalStart = _times.first;
     } else {
@@ -203,17 +200,11 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
 
   // ================== MODO "CADA X HORAS" ==================
 
-  /// Regenera la lista de horas _times a partir de:
-  ///   - _intervalStart
-  ///   - _intervalHours
-  /// Generando solo dentro del mismo día (0–24h).
   void _rebuildTimesFromInterval() {
     final List<TimeOfDay> generated = [];
 
-    // Convertimos a minutos desde la medianoche
     int startMinutes = _intervalStart.hour * 60 + _intervalStart.minute;
 
-    // Aseguramos algo razonable
     if (_intervalHours <= 0) _intervalHours = 4;
 
     final int step = _intervalHours * 60;
@@ -252,6 +243,16 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
   Future<void> _saveMedicationToFirestore() async {
     if (!_formKey.currentState!.validate()) return;
 
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Debes iniciar sesión para guardar medicamentos.'),
+        ),
+      );
+      return;
+    }
+
     if (_selectedDays.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Selecciona al menos un día.')),
@@ -259,9 +260,8 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
       return;
     }
 
-    // Tanto en "Horas específicas" como en "Cada X horas",
-    // la fuente de verdad es _times.
-    // En modo intervalo, _rebuildTimesFromInterval ya generó _times.
+    // En ambos modos (horas específicas / cada X horas),
+    // _times ya tiene la lista final.
     final timesStr = _times.map(_timeToString).toList();
 
     final medId = _medIdCtrl.text.trim().isEmpty
@@ -288,6 +288,7 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
 
         final updated = Medication(
           id: original.id,
+          userId: original.userId ?? user.uid, // aseguramos userId
           medId: medId,
           name: name,
           dose: dose,
@@ -318,6 +319,7 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
       } else {
         // -------- CREAR --------
         final newMed = Medication(
+          userId: user.uid, // 👈 AQUÍ GUARDAMOS EL DUEÑO
           medId: medId,
           name: name,
           dose: dose,
@@ -333,6 +335,7 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
 
         final created = Medication(
           id: docRef.id,
+          userId: newMed.userId,
           medId: newMed.medId,
           name: newMed.name,
           dose: newMed.dose,
@@ -519,7 +522,6 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
                     if (!selected) return;
                     setState(() {
                       _intervalMode = true;
-                      // Usamos como base la primera hora actual
                       _intervalStart = _times.isNotEmpty
                           ? _times.first
                           : const TimeOfDay(hour: 8, minute: 0);
@@ -578,9 +580,9 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
               const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
-                children: _times.map((t) {
-                  return Chip(label: Text(_timeToString(t)));
-                }).toList(),
+                children: _times
+                    .map((t) => Chip(label: Text(_timeToString(t))))
+                    .toList(),
               ),
             ] else ...[
               // Lista de horas específicas (modo manual)
