@@ -5,15 +5,22 @@ import '../models/medication.dart';
 import '../services/notification_service.dart';
 import 'add_medication_screen.dart';
 
-class MedicationDetailScreen extends StatelessWidget {
+class MedicationDetailScreen extends StatefulWidget {
   static const routeName = '/medication-detail';
 
   final Medication medication;
 
   const MedicationDetailScreen({super.key, required this.medication});
 
-  Future<void> _deleteMedication(BuildContext context) async {
-    // Mostrar diálogo de confirmación
+  @override
+  State<MedicationDetailScreen> createState() => _MedicationDetailScreenState();
+}
+
+class _MedicationDetailScreenState extends State<MedicationDetailScreen> {
+  Future<void> _deleteMedication(
+    BuildContext context,
+    Medication medication,
+  ) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -39,20 +46,19 @@ class MedicationDetailScreen extends StatelessWidget {
     if (confirmed != true || !context.mounted) return;
 
     try {
-      // 1️⃣ PRIMERO: Cancelar TODAS las notificaciones programadas
-      debugPrint('🗑️ Cancelando notificaciones de: ${medication.name}');
-      await NotificationService().cancelMedicationNotifications(medication.id!);
+      if (medication.id != null) {
+        await NotificationService().cancelMedicationNotifications(
+          medication.id!,
+        );
 
-      // 2️⃣ DESPUÉS: Eliminar de Firestore
-      debugPrint('🗑️ Eliminando de Firestore: ${medication.id}');
-      await FirebaseFirestore.instance
-          .collection('medications')
-          .doc(medication.id)
-          .delete();
+        await FirebaseFirestore.instance
+            .collection('medications')
+            .doc(medication.id)
+            .delete();
+      }
 
       if (!context.mounted) return;
 
-      // Mostrar confirmación
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('${medication.name} eliminado correctamente'),
@@ -61,7 +67,6 @@ class MedicationDetailScreen extends StatelessWidget {
         ),
       );
 
-      // Volver a la pantalla anterior
       Navigator.pop(context);
     } catch (e) {
       debugPrint('❌ Error al eliminar medicamento: $e');
@@ -78,35 +83,87 @@ class MedicationDetailScreen extends StatelessWidget {
     }
   }
 
-  void _editMedication(BuildContext context) {
+  void _editMedication(BuildContext context, Medication medication) {
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => AddMedicationScreen(medication: medication),
       ),
-    ).then((_) {
-      // Cuando regresamos de editar, volvemos al home para refrescar
-      Navigator.pop(context);
-    });
+    );
+    // 👆 sin Navigator.pop en el then, así volvemos a esta pantalla
   }
 
   @override
   Widget build(BuildContext context) {
+    // Si el medicamento no tiene id (caso raro), usamos la versión estática
+    if (widget.medication.id == null) {
+      return _buildScaffold(context, widget.medication);
+    }
+
+    final docRef = FirebaseFirestore.instance
+        .collection('medications')
+        .doc(widget.medication.id);
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: docRef.snapshots(),
+      builder: (ctx, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Scaffold(
+            appBar: AppBar(title: Text(widget.medication.name)),
+            body: const Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        if (!snapshot.hasData || !snapshot.data!.exists) {
+          return Scaffold(
+            appBar: AppBar(title: Text(widget.medication.name)),
+            body: const Center(child: Text('Este medicamento ya no existe.')),
+          );
+        }
+
+        final data = snapshot.data!.data()!;
+        final med = Medication.fromMap(data, id: snapshot.data!.id);
+
+        return _buildScaffold(ctx, med);
+      },
+    );
+  }
+
+  Widget _buildScaffold(BuildContext context, Medication medication) {
+    final theme = Theme.of(context);
+
+    final String descriptionText;
+    if (medication.description == null ||
+        medication.description!.trim().isEmpty) {
+      descriptionText = 'Sin descripción registrada';
+    } else {
+      descriptionText = medication.description!.trim();
+    }
+
+    // Texto que queremos mostrar para el ID de medicamento
+    final String medIdText;
+    final bool hasMedId =
+        medication.medId != null && medication.medId!.trim().isNotEmpty;
+
+    if (hasMedId) {
+      medIdText = medication.medId!.trim();
+    } else {
+      medIdText = '—'; // cuadro “vacío” cuando no hay ID
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: Text(medication.name),
         actions: [
-          // Botón de editar
           IconButton(
             icon: const Icon(Icons.edit_outlined),
             tooltip: 'Editar',
-            onPressed: () => _editMedication(context),
+            onPressed: () => _editMedication(context, medication),
           ),
-          // Botón de eliminar
           IconButton(
             icon: const Icon(Icons.delete_outline),
             tooltip: 'Eliminar',
-            onPressed: () => _deleteMedication(context),
+            onPressed: () => _deleteMedication(context, medication),
           ),
         ],
       ),
@@ -114,7 +171,7 @@ class MedicationDetailScreen extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         child: ListView(
           children: [
-            // Card con información principal
+            // Dosis + presentación
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -161,7 +218,68 @@ class MedicationDetailScreen extends StatelessWidget {
 
             const SizedBox(height: 16),
 
-            // Card con horarios
+            // Descripción
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Descripción',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      descriptionText,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: descriptionText == 'Sin descripción registrada'
+                            ? Colors.grey[600]
+                            : Colors.black,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // 🔹 ID de medicamento (MedID SIEMPRE visible, vacío si no hay)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'ID de medicamento',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      medIdText,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: hasMedId ? Colors.black : Colors.grey[600],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // Días de la semana
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -177,7 +295,7 @@ class MedicationDetailScreen extends StatelessWidget {
                         ),
                         SizedBox(width: 8),
                         Text(
-                          'Días de toma',
+                          'Días de la semana',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
@@ -192,13 +310,9 @@ class MedicationDetailScreen extends StatelessWidget {
                       children: medication.days.map((day) {
                         return Chip(
                           label: Text(day),
-                          backgroundColor: Theme.of(
-                            context,
-                          ).colorScheme.primaryContainer,
+                          backgroundColor: theme.colorScheme.primaryContainer,
                           labelStyle: TextStyle(
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.onPrimaryContainer,
+                            color: theme.colorScheme.onPrimaryContainer,
                           ),
                         );
                       }).toList(),
@@ -210,7 +324,7 @@ class MedicationDetailScreen extends StatelessWidget {
 
             const SizedBox(height: 16),
 
-            // Card con horas
+            // Horarios
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -260,7 +374,7 @@ class MedicationDetailScreen extends StatelessWidget {
 
             const SizedBox(height: 16),
 
-            // Card con estado
+            // Estado
             Card(
               color: _getStatusColor(medication.status),
               child: Padding(

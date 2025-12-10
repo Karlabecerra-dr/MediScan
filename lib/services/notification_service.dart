@@ -1,10 +1,11 @@
 // ========================
 //  NOTIFICATION SERVICE
-//  MediScan – Limpio, optimizado y con vibración fuerte
+//  MediScan – vibración fuerte + sonido personalizado
 // ========================
 
 import 'dart:convert';
 import 'dart:typed_data';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
@@ -17,7 +18,8 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
 
-  static const String _channelId = 'medication_channel';
+  // Cambié el id para forzar un canal nuevo con el sonido correcto
+  static const String _channelId = 'medication_channel_v2';
   static const String _channelName = 'Recordatorios de medicamentos';
   static const String _channelDescription =
       'Notificaciones de toma de medicamentos';
@@ -40,9 +42,10 @@ class NotificationService {
         >();
 
     if (androidPlugin != null) {
-      // Solicitar permisos Android 13+
+      // Android 13+
       await androidPlugin.requestNotificationsPermission();
 
+      // Canal con sonido personalizado + vibración fuerte
       await androidPlugin.createNotificationChannel(
         AndroidNotificationChannel(
           _channelId,
@@ -51,12 +54,13 @@ class NotificationService {
           importance: Importance.max,
           playSound: true,
           enableVibration: true,
-          vibrationPattern: Int64List.fromList([0, 600, 200, 600]),
+          sound: const RawResourceAndroidNotificationSound('sonido'),
+          vibrationPattern: Int64List.fromList([0, 1200, 300, 1500]),
           showBadge: true,
         ),
       );
 
-      debugPrint('✅ Canal de notificaciones creado');
+      debugPrint('✅ Canal de notificaciones creado ($_channelId)');
     }
   }
 
@@ -70,6 +74,8 @@ class NotificationService {
     required List<String> times,
   }) async {
     debugPrint('📅 Programando medicamento: $name');
+    debugPrint('   Días: $days');
+    debugPrint('   Horas: $times');
 
     for (final label in days) {
       final weekday = _weekdayFromLabel(label);
@@ -86,15 +92,13 @@ class NotificationService {
         final id = _notificationId(medicationId, weekday, i);
         final scheduled = _nextInstanceOfWeekdayTime(weekday, hour, minute);
 
-        final notifDetails = _defaultDetails();
-
         try {
           await _plugin.zonedSchedule(
             id,
             'Tomar medicamento 💊',
             '$name · $t',
             scheduled,
-            notifDetails,
+            _defaultDetails(),
             androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
             payload: jsonEncode({
               'medicationId': medicationId,
@@ -124,6 +128,7 @@ class NotificationService {
         importance: Importance.max,
         priority: Priority.high,
         playSound: true,
+        sound: const RawResourceAndroidNotificationSound('sonido'),
         enableVibration: true,
         vibrationPattern: Int64List.fromList([
           0, // espera inicial
@@ -131,6 +136,7 @@ class NotificationService {
           300, // pausa
           1500, // vibra 1.5s
         ]),
+        audioAttributesUsage: AudioAttributesUsage.alarm,
         ticker: 'Recordatorio de medicamento',
         styleInformation: const BigTextStyleInformation(''),
       ),
@@ -138,7 +144,7 @@ class NotificationService {
   }
 
   // ============================
-  //     NOTIFICACIÓN DE PRUEBA
+  //     NOTIFICACIONES DE PRUEBA
   // ============================
   Future<void> showImmediateTestNotification({
     required String medicationId,
@@ -151,6 +157,7 @@ class NotificationService {
       'Test inmediato 💊',
       '$name – ${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}',
       _defaultDetails(),
+      payload: jsonEncode({'medicationId': medicationId, 'name': name}),
     );
 
     debugPrint('✅ Notificación inmediata enviada');
@@ -174,6 +181,7 @@ class NotificationService {
       scheduled,
       _defaultDetails(),
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      payload: jsonEncode({'medicationId': medicationId, 'name': name}),
     );
 
     debugPrint('🧪 Notificación programada → $scheduled');

@@ -8,11 +8,14 @@ import 'scan_screen.dart';
 class AddMedicationScreen extends StatefulWidget {
   static const routeName = '/add-medication';
 
-  /// Si viene null -> estamos creando un medicamento nuevo.
-  /// Si viene con datos -> estamos editando ese medicamento.
   final Medication? medication;
+  final bool autoScanOnOpen;
 
-  const AddMedicationScreen({super.key, this.medication});
+  const AddMedicationScreen({
+    super.key,
+    this.medication,
+    this.autoScanOnOpen = false,
+  });
 
   @override
   State<AddMedicationScreen> createState() => _AddMedicationScreenState();
@@ -20,20 +23,15 @@ class AddMedicationScreen extends StatefulWidget {
 
 class _AddMedicationScreenState extends State<AddMedicationScreen> {
   final _formKey = GlobalKey<FormState>();
+
+  final _medIdCtrl = TextEditingController();
   final _nameCtrl = TextEditingController();
   final _doseCtrl = TextEditingController();
   final _presentationCtrl = TextEditingController(text: 'Tableta');
+  final _descriptionCtrl = TextEditingController();
 
-  // Días seleccionados (Lun, Mar, Mié, ...)
   late List<String> _selectedDays;
-
-  // ----- MODO 1: Horas específicas -----
   late List<TimeOfDay> _times;
-
-  // ----- MODO 2: Cada X horas -----
-  bool _useInterval = false;
-  TimeOfDay _intervalStart = const TimeOfDay(hour: 8, minute: 0);
-  int _intervalHours = 8; // cada 8 horas por defecto
 
   bool get _isEditing => widget.medication != null;
 
@@ -46,44 +44,133 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
     final med = widget.medication;
 
     if (med != null) {
-      // ----- MODO EDICIÓN -----
+      // MODO EDICIÓN
+      _medIdCtrl.text = med.medId ?? '';
       _nameCtrl.text = med.name;
       _doseCtrl.text = med.dose;
       _presentationCtrl.text = med.presentation;
+      _descriptionCtrl.text = med.description ?? '';
 
-      _selectedDays = med.days.isNotEmpty
-          ? List<String>.from(med.days)
-          : List.from(allDays);
+      _selectedDays = List<String>.from(med.days);
 
-      // Para edición asumimos modo "horas específicas" con las horas que ya tiene
-      if (med.times.isNotEmpty) {
-        _times = med.times.map(_parseTime).toList();
-      } else {
+      _times = med.times.map((t) {
+        final parts = t.split(':');
+        final hour = int.tryParse(parts.first) ?? 0;
+        final minute = int.tryParse(parts.last) ?? 0;
+        return TimeOfDay(hour: hour, minute: minute);
+      }).toList();
+
+      if (_times.isEmpty) {
         _times = [const TimeOfDay(hour: 8, minute: 0)];
       }
-      _useInterval = false;
     } else {
-      // ----- MODO CREACIÓN -----
-      _selectedDays = List.from(allDays);
+      // NUEVO
+      _selectedDays = List<String>.from(allDays);
       _times = [const TimeOfDay(hour: 8, minute: 0)];
-      _useInterval = false;
+    }
+
+    // Si venimos desde el botón "Escanear" del Home,
+    // abrimos la cámara automáticamente al entrar (solo en modo nuevo).
+    if (widget.autoScanOnOpen && !_isEditing) {
+      // microtask para que espere a que se construya el widget
+      Future.microtask(_handleScan);
     }
   }
 
-  TimeOfDay _parseTime(String hhmm) {
-    final parts = hhmm.split(':');
-    final hour = int.tryParse(parts[0]) ?? 0;
-    final minute = int.tryParse(parts[1]) ?? 0;
-    return TimeOfDay(hour: hour, minute: minute);
+  @override
+  void dispose() {
+    _medIdCtrl.dispose();
+    _nameCtrl.dispose();
+    _doseCtrl.dispose();
+    _presentationCtrl.dispose();
+    _descriptionCtrl.dispose();
+    super.dispose();
+  }
+
+  String _timeToString(TimeOfDay t) {
+    final h = t.hour.toString().padLeft(2, '0');
+    final m = t.minute.toString().padLeft(2, '0');
+    return '$h:$m';
+  }
+
+  Future<void> _handleScan() async {
+    final code = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(builder: (_) => const ScanScreen()),
+    );
+
+    if (!mounted) return;
+    if (code == null || code.isEmpty) return;
+
+    setState(() {
+      _medIdCtrl.text = code;
+    });
+
+    // Intentar autocompletar desde catálogo
+    await _loadFromCatalog(code);
+  }
+
+  Future<void> _loadFromCatalog(String medId) async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('med_catalog')
+          .doc(medId)
+          .get();
+
+      if (!doc.exists) return;
+
+      final data = doc.data() ?? {};
+
+      if (!mounted) return;
+
+      setState(() {
+        if (_nameCtrl.text.trim().isEmpty) {
+          _nameCtrl.text = data['name'] ?? '';
+        }
+        if (_doseCtrl.text.trim().isEmpty) {
+          _doseCtrl.text = data['dose'] ?? '';
+        }
+        if (_presentationCtrl.text.trim().isEmpty) {
+          _presentationCtrl.text = data['presentation'] ?? 'Tableta';
+        }
+        if (_descriptionCtrl.text.trim().isEmpty) {
+          _descriptionCtrl.text = data['description'] ?? '';
+        }
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo cargar desde el catálogo: $e')),
+      );
+    }
+  }
+
+  Future<void> _upsertCatalog(String medId, Medication med) async {
+    try {
+      await FirebaseFirestore.instance
+          .collection('med_catalog')
+          .doc(medId)
+          .set({
+            'name': med.name,
+            'dose': med.dose,
+            'presentation': med.presentation,
+            'description': med.description,
+          }, SetOptions(merge: true));
+    } catch (e) {
+      // No rompemos el flujo si el catálogo falla, solo log / snackbar opcional
+      debugPrint('Error actualizando catálogo: $e');
+    }
   }
 
   Future<void> _pickTime(int index) async {
-    final selected = await showTimePicker(
-      context: context,
-      initialTime: _times[index],
-    );
-    if (selected != null) {
-      setState(() => _times[index] = selected);
+    final current = _times[index];
+
+    final picked = await showTimePicker(context: context, initialTime: current);
+
+    if (picked != null) {
+      setState(() {
+        _times[index] = picked;
+      });
     }
   }
 
@@ -94,400 +181,343 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
   }
 
   void _removeTime(int index) {
-    if (_times.length == 1) return;
     setState(() {
-      _times.removeAt(index);
-    });
-  }
-
-  void _toggleDay(String label) {
-    setState(() {
-      if (_selectedDays.contains(label)) {
-        _selectedDays.remove(label);
-      } else {
-        _selectedDays.add(label);
+      if (_times.length > 1) {
+        _times.removeAt(index);
       }
     });
   }
 
-  Future<void> _pickIntervalStart() async {
-    final selected = await showTimePicker(
-      context: context,
-      initialTime: _intervalStart,
-    );
-    if (selected != null) {
-      setState(() => _intervalStart = selected);
-    }
-  }
-
-  /// Construye la lista final de horas que se guardarán:
-  /// - Si estamos en modo "horas específicas" -> usa _times
-  /// - Si estamos en modo "cada X horas" -> genera a partir de inicio+intervalo
-  List<TimeOfDay> _buildEffectiveTimes() {
-    if (!_useInterval) return _times;
-
-    final result = <TimeOfDay>[];
-
-    final stepMinutes = _intervalHours * 60;
-    if (stepMinutes <= 0) return _times;
-
-    int currentMinutes = _intervalStart.hour * 60 + _intervalStart.minute;
-    const totalMinutesInDay = 24 * 60;
-
-    while (currentMinutes < totalMinutesInDay) {
-      final h = currentMinutes ~/ 60;
-      final m = currentMinutes % 60;
-      result.add(TimeOfDay(hour: h, minute: m));
-      currentMinutes += stepMinutes;
-    }
-
-    return result;
-  }
-
-  Future<void> _scanCodeAndFillName() async {
-    final scannedCode = await Navigator.push<String>(
-      context,
-      MaterialPageRoute(builder: (_) => const ScanScreen()),
-    );
-
-    if (!mounted) return;
-
-    if (scannedCode != null && scannedCode.isNotEmpty) {
-      setState(() {
-        _nameCtrl.text = scannedCode;
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Código escaneado: $scannedCode'),
-          duration: const Duration(seconds: 2),
-        ),
-      );
-    }
-  }
-
-  // =================== GUARDAR EN FIRESTORE + NOTIFICACIONES ===================
   Future<void> _saveMedicationToFirestore() async {
     if (!_formKey.currentState!.validate()) return;
 
-    // 1. Obtenemos la lista final de horas (según modo)
-    final effectiveTimes = _buildEffectiveTimes();
-    if (effectiveTimes.isEmpty) {
+    if (_selectedDays.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Debe existir al menos una hora de toma')),
+        const SnackBar(content: Text('Selecciona al menos un día.')),
       );
       return;
     }
 
-    // 2. Preparamos las horas como String "HH:MM"
-    final timesAsString = effectiveTimes.map((t) {
-      final h = t.hour.toString().padLeft(2, '0');
-      final m = t.minute.toString().padLeft(2, '0');
-      return '$h:$m';
-    }).toList();
+    // Por ahora SOLO soportamos "Horas específicas"
+    // Si en el futuro agregamos "Cada X horas", aquí habrá lógica extra.
 
-    final collection = FirebaseFirestore.instance.collection('medications');
+    final timesStr = _times.map(_timeToString).toList();
 
-    // Variable auxiliar para tener el objeto final (sea nuevo o editado)
-    Medication finalMed;
+    final medId = _medIdCtrl.text.trim().isEmpty
+        ? null
+        : _medIdCtrl.text.trim();
 
-    if (_isEditing) {
-      // ------------- MODO EDICIÓN -------------
-      final originalMed = widget.medication!;
+    final name = _nameCtrl.text.trim();
+    final dose = _doseCtrl.text.trim();
+    final presentation = _presentationCtrl.text.trim().isEmpty
+        ? 'Tableta'
+        : _presentationCtrl.text.trim();
+    final description = _descriptionCtrl.text.trim().isEmpty
+        ? null
+        : _descriptionCtrl.text.trim();
 
-      final updatedMed = Medication(
-        id: originalMed.id,
-        name: _nameCtrl.text.trim(),
-        dose: _doseCtrl.text.trim(),
-        presentation: _presentationCtrl.text.trim(),
-        days: List.from(_selectedDays),
-        times: timesAsString,
-        // mantenemos status y taken que ya pudiera tener
-        status: originalMed.status,
-        taken: Map<String, bool>.from(originalMed.taken),
+    final medsCollection = FirebaseFirestore.instance.collection('medications');
+
+    try {
+      Medication finalMed;
+
+      if (_isEditing) {
+        // EDITAR
+        final original = widget.medication!;
+
+        final updated = Medication(
+          id: original.id,
+          medId: medId,
+          name: name,
+          dose: dose,
+          presentation: presentation,
+          days: List<String>.from(_selectedDays),
+          times: timesStr,
+          status: original.status,
+          description: description,
+          taken: original.taken,
+        );
+
+        if (original.id != null) {
+          await medsCollection.doc(original.id).update(updated.toMap());
+
+          // Reprogramar notificaciones
+          await NotificationService().cancelMedicationNotifications(
+            original.id!,
+          );
+
+          await NotificationService().scheduleMedication(
+            medicationId: updated.id!,
+            name: updated.name,
+            days: updated.days,
+            times: updated.times,
+          );
+        }
+
+        finalMed = updated;
+      } else {
+        // CREAR
+        final newMed = Medication(
+          medId: medId,
+          name: name,
+          dose: dose,
+          presentation: presentation,
+          days: List<String>.from(_selectedDays),
+          times: timesStr,
+          status: 'pendiente',
+          description: description,
+          taken: const {},
+        );
+
+        final docRef = await medsCollection.add(newMed.toMap());
+
+        final created = Medication(
+          id: docRef.id,
+          medId: newMed.medId,
+          name: newMed.name,
+          dose: newMed.dose,
+          presentation: newMed.presentation,
+          days: newMed.days,
+          times: newMed.times,
+          status: newMed.status,
+          description: newMed.description,
+          taken: newMed.taken,
+        );
+
+        await NotificationService().scheduleMedication(
+          medicationId: created.id!,
+          name: created.name,
+          days: created.days,
+          times: created.times,
+        );
+
+        finalMed = created;
+      }
+
+      // Actualizar catálogo colaborativo si hay medId
+      if (medId != null) {
+        await _upsertCatalog(medId, finalMed);
+      }
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _isEditing
+                ? 'Medicamento actualizado correctamente'
+                : 'Medicamento creado correctamente',
+          ),
+        ),
       );
 
-      // Actualizamos Firestore
-      await collection.doc(updatedMed.id!).update(updatedMed.toMap());
+      Navigator.pop(context);
+    } catch (e) {
+      if (!mounted) return;
 
-      // Cancelamos notificaciones anteriores
-      await NotificationService().cancelMedicationNotifications(
-        originalMed.id!,
-      );
-
-      finalMed = updatedMed;
-    } else {
-      // ------------- MODO CREACIÓN -------------
-      final newMed = Medication(
-        id: null,
-        name: _nameCtrl.text.trim(),
-        dose: _doseCtrl.text.trim(),
-        presentation: _presentationCtrl.text.trim(),
-        days: List.from(_selectedDays),
-        times: timesAsString,
-        status: 'pendiente',
-      );
-
-      // Guardamos en Firestore
-      final docRef = await collection.add(newMed.toMap());
-
-      // Reconstruimos el objeto con el ID generado
-      finalMed = Medication(
-        id: docRef.id,
-        name: newMed.name,
-        dose: newMed.dose,
-        presentation: newMed.presentation,
-        days: newMed.days,
-        times: newMed.times,
-        status: newMed.status,
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error al guardar: $e'),
+          backgroundColor: Colors.red,
+        ),
       );
     }
-
-    // Programar notificaciones según la configuración final de días+horas
-    await NotificationService().scheduleMedication(
-      medicationId: finalMed.id!,
-      name: finalMed.name,
-      days: finalMed.days,
-      times: finalMed.times,
-    );
-
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          _isEditing
-              ? 'Medicamento actualizado correctamente'
-              : 'Medicamento guardado correctamente',
-        ),
-        duration: const Duration(seconds: 2),
-      ),
-    );
-
-    Navigator.pop(context);
-  }
-  // ============================================================================
-
-  @override
-  void dispose() {
-    _nameCtrl.dispose();
-    _doseCtrl.dispose();
-    _presentationCtrl.dispose();
-    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    const dayLabels = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
-    final previewIntervalTimes = _buildEffectiveTimes();
+    final isEditing = _isEditing;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_isEditing ? 'Editar medicamento' : 'Agregar medicamento'),
+        title: Text(isEditing ? 'Editar medicamento' : 'Agregar medicamento'),
       ),
-      body: SafeArea(
-        child: Padding(
+      body: Form(
+        key: _formKey,
+        child: ListView(
           padding: const EdgeInsets.all(16),
-          child: Form(
-            key: _formKey,
-            child: ListView(
+          children: [
+            // ID de medicamento (escaneo)
+            TextFormField(
+              controller: _medIdCtrl,
+              readOnly: true,
+              decoration: InputDecoration(
+                labelText: 'ID del medicamento (escaneo)',
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.qr_code_scanner_rounded),
+                  onPressed: _handleScan,
+                  tooltip: 'Escanear código',
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Nombre
+            TextFormField(
+              controller: _nameCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Nombre del medicamento *',
+              ),
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'Ingresa el nombre del medicamento';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 16),
+
+            // Dosis
+            TextFormField(
+              controller: _doseCtrl,
+              decoration: const InputDecoration(labelText: 'Dosis *'),
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'Ingresa la dosis';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 16),
+
+            // Presentación
+            TextFormField(
+              controller: _presentationCtrl,
+              decoration: const InputDecoration(labelText: 'Presentación'),
+            ),
+            const SizedBox(height: 16),
+
+            // Descripción
+            TextFormField(
+              controller: _descriptionCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Descripción (opcional)',
+              ),
+              maxLines: 3,
+            ),
+            const SizedBox(height: 24),
+
+            // Días de la semana
+            const Text(
+              'Días de la semana',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map((
+                day,
+              ) {
+                final selected = _selectedDays.contains(day);
+                return ChoiceChip(
+                  label: Text(day),
+                  selected: selected,
+                  onSelected: (value) {
+                    setState(() {
+                      if (value) {
+                        if (!_selectedDays.contains(day)) {
+                          _selectedDays.add(day);
+                        }
+                      } else {
+                        _selectedDays.remove(day);
+                      }
+                    });
+                  },
+                );
+              }).toList(),
+            ),
+
+            const SizedBox(height: 24),
+
+            // Horario de toma
+            const Text(
+              'Horario de toma',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+
+            Row(
               children: [
-                // ---------- NOMBRE + ESCANEO ----------
-                TextFormField(
-                  controller: _nameCtrl,
-                  decoration: InputDecoration(
-                    labelText: 'Nombre del medicamento *',
-                    hintText: 'p. ej., Losartán',
-                    suffixIcon: IconButton(
-                      icon: const Icon(Icons.qr_code_scanner_rounded),
-                      tooltip: 'Escanear código',
-                      onPressed: _scanCodeAndFillName,
-                    ),
-                  ),
-                  validator: (value) => value == null || value.trim().isEmpty
-                      ? 'Ingresa el nombre'
-                      : null,
+                ChoiceChip(
+                  label: const Text('Horas específicas'),
+                  selected: true, // por ahora siempre este modo
+                  onSelected: (_) {},
                 ),
-                const SizedBox(height: 12),
-
-                // ---------- DOSIS ----------
-                TextFormField(
-                  controller: _doseCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Dosis *',
-                    hintText: 'p. ej., 50 mg',
-                  ),
-                  validator: (value) => value == null || value.trim().isEmpty
-                      ? 'Ingresa la dosis'
-                      : null,
-                ),
-                const SizedBox(height: 12),
-
-                // ---------- PRESENTACIÓN ----------
-                TextFormField(
-                  controller: _presentationCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Presentación',
-                    hintText: 'Tableta, cápsula, jarabe…',
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // ---------- DÍAS ----------
-                const Text(
-                  'Días de la semana',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 6,
-                  children: [
-                    for (final label in dayLabels)
-                      ChoiceChip(
-                        label: Text(label),
-                        selected: _selectedDays.contains(label),
-                        onSelected: (_) => _toggleDay(label),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-
-                // ---------- MODOS DE HORARIO ----------
-                const Text(
-                  'Horario de toma',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    ChoiceChip(
-                      label: const Text('Horas específicas'),
-                      selected: !_useInterval,
-                      onSelected: (_) {
-                        setState(() => _useInterval = false);
-                      },
-                    ),
-                    const SizedBox(width: 8),
-                    ChoiceChip(
-                      label: const Text('Cada X horas'),
-                      selected: _useInterval,
-                      onSelected: (_) {
-                        setState(() => _useInterval = true);
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-
-                if (!_useInterval) ...[
-                  // ----- MODO HORAS ESPECÍFICAS -----
-                  Column(
-                    children: [
-                      for (var i = 0; i < _times.length; i++)
-                        ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: const Icon(Icons.access_time_rounded),
-                          title: Text(_times[i].format(context)),
-                          onTap: () => _pickTime(i),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.delete_outline),
-                            onPressed: _times.length == 1
-                                ? null
-                                : () => _removeTime(i),
-                          ),
-                        ),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: TextButton.icon(
-                          onPressed: _addTime,
-                          icon: const Icon(Icons.add),
-                          label: const Text('Agregar hora'),
+                const SizedBox(width: 8),
+                ChoiceChip(
+                  label: const Text('Cada X horas'),
+                  selected: false,
+                  onSelected: (_) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'El modo "Cada X horas" aún no está implementado.',
                         ),
                       ),
-                    ],
-                  ),
-                ] else ...[
-                  // ----- MODO CADA X HORAS -----
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          const Text('Inicio:'),
-                          const SizedBox(width: 8),
-                          TextButton.icon(
-                            onPressed: _pickIntervalStart,
-                            icon: const Icon(Icons.access_time_rounded),
-                            label: Text(_intervalStart.format(context)),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          const Text('Cada'),
-                          const SizedBox(width: 8),
-                          DropdownButton<int>(
-                            value: _intervalHours,
-                            items: const [4, 6, 8, 12, 24]
-                                .map(
-                                  (h) => DropdownMenuItem<int>(
-                                    value: h,
-                                    child: Text('$h horas'),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: (value) {
-                              if (value != null) {
-                                setState(() => _intervalHours = value);
-                              }
-                            },
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      const Text(
-                        'Tomas generadas para el día:',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 4,
-                        children: previewIntervalTimes
-                            .map((t) => Chip(label: Text(t.format(context))))
-                            .toList(),
-                      ),
-                    ],
-                  ),
-                ],
-
-                const SizedBox(height: 24),
-
-                // ---------- BOTONES GUARDAR / CANCELAR ----------
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('Cancelar'),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: FilledButton(
-                        onPressed: _saveMedicationToFirestore,
-                        child: Text(_isEditing ? 'Guardar cambios' : 'Guardar'),
-                      ),
-                    ),
-                  ],
+                    );
+                  },
                 ),
               ],
             ),
-          ),
+
+            const SizedBox(height: 16),
+
+            // Lista de horas específicas
+            ..._times.asMap().entries.map((entry) {
+              final index = entry.key;
+              final time = entry.value;
+
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.access_time),
+                      onPressed: () => _pickTime(index),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      time.format(context),
+                      style: const TextStyle(fontSize: 16),
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline),
+                      onPressed: () => _removeTime(index),
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+
+            TextButton.icon(
+              onPressed: _addTime,
+              icon: const Icon(Icons.add),
+              label: const Text('Agregar hora'),
+            ),
+
+            const SizedBox(height: 24),
+
+            // Botones Guardar / Cancelar
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Cancelar'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: _saveMedicationToFirestore,
+                    child: const Text('Guardar'),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );

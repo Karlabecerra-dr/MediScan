@@ -64,7 +64,7 @@ class MediScanApp extends StatelessWidget {
       routes: {
         HomeScreen.routeName: (_) => const HomeScreen(),
         AddMedicationScreen.routeName: (_) => const AddMedicationScreen(),
-        ScanScreen.routeName: (_) => const ScanScreen(),
+        //ScanScreen.routeName: (_) => const ScanScreen(),
       },
 
       onGenerateRoute: (settings) {

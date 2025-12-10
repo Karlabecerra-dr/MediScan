@@ -6,8 +6,8 @@ import '../models/medication.dart';
 import '../widgets/day_strip.dart';
 import '../widgets/medication_card.dart';
 import 'add_medication_screen.dart';
-import 'scan_screen.dart';
 import '../services/notification_service.dart';
+import 'medication_detail_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   static const routeName = '/';
@@ -44,7 +44,8 @@ class _HomeScreenState extends State<HomeScreen> {
         .collection('medications')
         .doc(med.id!)
         .update({
-          'taken.$key': true, // Firestore: actualización puntual en el mapa
+          'taken.$key': true, // se marca solo esta toma
+          'status': 'tomado', // opcional: estado global
         });
   }
 
@@ -54,10 +55,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final id = med.id!;
 
-    // 1) Borrar el documento en Firestore
     await FirebaseFirestore.instance.collection('medications').doc(id).delete();
 
-    // 2) Cancelar TODAS las notificaciones asociadas a este medicamento
     await NotificationService().cancelMedicationNotifications(id);
   }
 
@@ -106,10 +105,15 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  /// Escanear DESDE HOME:
+  /// abrimos directamente la pantalla de agregar medicamento
+  /// con autoScanOnOpen = true para que se abra la cámara al entrar.
   void _openScan() {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const ScanScreen()),
+      MaterialPageRoute(
+        builder: (_) => const AddMedicationScreen(autoScanOnOpen: true),
+      ),
     );
   }
 
@@ -133,7 +137,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       'assets/logo.png',
                       width: 40,
                       height: 40,
-                      fit: BoxFit.cover,
+                      fit: BoxFit.contain,
                       errorBuilder: (context, error, stackTrace) {
                         return const Icon(
                           Icons.local_hospital,
@@ -149,8 +153,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                   const Spacer(),
-
-                  // Botón de PRUEBA de notificaciones (puedes quitarlo después)
                   IconButton(
                     icon: const Icon(
                       Icons.notifications_active_rounded,
@@ -289,7 +291,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   // Ordenar por hora "HH:MM"
                   dosesToday.sort((a, b) => a.time.compareTo(b.time));
 
-                  // Ahora "pendiente" es por dosis, no por medicamento completo
+                  // Pendientes por dosis, no por medicamento completo
                   final pendingCount = dosesToday
                       .where((d) => !d.isTaken)
                       .length;
@@ -344,14 +346,15 @@ class _HomeScreenState extends State<HomeScreen> {
                                     child: MedicationCard(
                                       medication: item.medication,
                                       time: item.time,
-                                      isTaken: item.isTaken, // 👈 NUEVO
+                                      isTaken: item.isTaken,
                                       onTap: () {
                                         Navigator.push(
                                           context,
                                           MaterialPageRoute(
-                                            builder: (_) => AddMedicationScreen(
-                                              medication: item.medication,
-                                            ),
+                                            builder: (_) =>
+                                                MedicationDetailScreen(
+                                                  medication: item.medication,
+                                                ),
                                           ),
                                         );
                                       },

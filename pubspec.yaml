@@ -11,7 +11,7 @@ dependencies:
   flutter:
     sdk: flutter
 
-    # Notificaciones locales
+  # Notificaciones locales
   flutter_local_notifications: ^19.5.0
   timezone: ^0.10.1
 
@@ -37,7 +37,7 @@ flutter:
 
 flutter_launcher_icons:
   android: true
-  ios: true
+  ios: false        # ponlo en false si no compila para iOS
   image_path: "assets/logo.png"
   min_sdk_android: 21
 
@@ -45,7 +45,8 @@ flutter_native_splash:
   color: "#FFFFFF"
   image: assets/logo.png
   android: true
-  ios: true
+  ios: false        # igual acá, si solo usa Android
   android_12:
     color: "#FFFFFF"
     image: assets/logo.png
+
