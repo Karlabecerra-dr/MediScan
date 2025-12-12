@@ -1,73 +1,106 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
+import '../models/medication.dart';
+import 'notification_service.dart';
+
 class AuthService {
-  AuthService._internal();
-
-  static final AuthService _instance = AuthService._internal();
-
-  factory AuthService() => _instance;
-
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  Stream<User?> get authStateChanges => _auth.authStateChanges();
-
-  User? get currentUser => _auth.currentUser;
-
-  String? get currentUserId => _auth.currentUser?.uid;
-
-  Future<User?> signInWithEmail({
+  /// Iniciar sesión con email/contraseña
+  Future<UserCredential> signInWithEmail({
     required String email,
     required String password,
   }) async {
     try {
-      final cred = await _auth.signInWithEmailAndPassword(
-        email: email.trim(),
-        password: password.trim(),
+      final credential = await _auth.signInWithEmailAndPassword(
+        email: email,
+        password: password,
       );
-      return cred.user;
+
+      // 🔁 Resincronizar notificaciones para ESTA cuenta
+      await _resyncNotificationsForUser(credential.user);
+
+      return credential;
     } on FirebaseAuthException catch (e) {
-      debugPrint('❌ signIn error: $e');
-      throw _mapAuthError(e);
+      debugPrint('Auth error (signIn): ${e.code} - ${e.message}');
+      throw e; // El LoginScreen se encarga de mostrar el mensaje amigable
+    } catch (e) {
+      debugPrint('Unknown auth error (signIn): $e');
+      rethrow;
     }
   }
 
-  Future<User?> signUpWithEmail({
+  /// Crear cuenta con email/contraseña
+  Future<UserCredential> signUpWithEmail({
     required String email,
     required String password,
   }) async {
     try {
-      final cred = await _auth.createUserWithEmailAndPassword(
-        email: email.trim(),
-        password: password.trim(),
+      final credential = await _auth.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
       );
-      return cred.user;
+
+      // Al crear cuenta nueva aún no hay medicamentos → no hace falta programar nada
+      return credential;
     } on FirebaseAuthException catch (e) {
-      debugPrint('❌ signUp error: $e');
-      throw _mapAuthError(e);
+      debugPrint('Auth error (signUp): ${e.code} - ${e.message}');
+      throw e;
+    } catch (e) {
+      debugPrint('Unknown auth error (signUp): $e');
+      rethrow;
     }
   }
 
+  /// Cerrar sesión
   Future<void> signOut() async {
-    await _auth.signOut();
+    try {
+      // 🗑 Antes de salir, cancelamos TODAS las notificaciones locales
+      await NotificationService().cancelAllMedications();
+
+      await _auth.signOut();
+    } catch (e) {
+      debugPrint('Error during signOut: $e');
+      rethrow;
+    }
   }
 
-  String _mapAuthError(FirebaseAuthException e) {
-    switch (e.code) {
-      case 'invalid-email':
-        return 'El correo no tiene un formato válido.';
-      case 'user-disabled':
-        return 'Esta cuenta ha sido deshabilitada.';
-      case 'user-not-found':
-        return 'No existe un usuario con ese correo.';
-      case 'wrong-password':
-        return 'Contraseña incorrecta.';
-      case 'email-already-in-use':
-        return 'Ya existe una cuenta registrada con este correo.';
-      case 'weak-password':
-        return 'La contraseña es demasiado débil (usa al menos 6 caracteres).';
-      default:
-        return 'Error de autenticación: ${e.message ?? e.code}';
+  // =========================================================
+  //   Helpers internos
+  //   - Cancela todo
+  //   - Relee los medicamentos del usuario
+  //   - Vuelve a programar notificaciones sólo para esa cuenta
+  // =========================================================
+  Future<void> _resyncNotificationsForUser(User? user) async {
+    if (user == null) return;
+
+    // Primero borramos todo lo que hubiera
+    await NotificationService().cancelAllMedications();
+
+    // Cargamos medicamentos de este usuario
+    final query = await FirebaseFirestore.instance
+        .collection('medications')
+        .where('userId', isEqualTo: user.uid)
+        .get();
+
+    for (final doc in query.docs) {
+      final med = Medication.fromMap(doc.data(), id: doc.id);
+
+      if (med.id == null) continue;
+      if (med.days.isEmpty || med.times.isEmpty) continue;
+
+      await NotificationService().scheduleMedication(
+        medicationId: med.id!,
+        name: med.name,
+        days: med.days,
+        times: med.times,
+      );
     }
+
+    debugPrint(
+      '🔁 Notificaciones resincronizadas para usuario ${user.uid} (medicamentos: ${query.docs.length})',
+    );
   }
 }

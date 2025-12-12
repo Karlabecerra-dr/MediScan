@@ -11,13 +11,19 @@ import 'screens/scan_screen.dart';
 import 'screens/medication_detail_screen.dart';
 import 'screens/login_screen.dart';
 
+// 👇 IMPORTA EL SERVICIO DE NOTIFICACIONES
+import 'services/notification_service.dart';
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  // 👇 Necesario para usar DateFormat con 'es'
+  // Necesario para usar DateFormat con 'es'
   await initializeDateFormatting('es', null);
+
+  // 👇 INICIALIZAR NOTIFICACIONES (canal, timezone, permisos, etc.)
+  await NotificationService().init();
 
   runApp(const MediScanApp());
 }
@@ -35,7 +41,7 @@ class MediScanApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF006875)),
       ),
 
-      // 🔹 Pantalla según si hay usuario logueado o no
+      // Pantalla según si hay usuario logueado o no
       home: StreamBuilder<User?>(
         stream: FirebaseAuth.instance.authStateChanges(),
         builder: (context, snapshot) {

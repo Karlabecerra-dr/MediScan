@@ -1,12 +1,14 @@
+// lib/services/notification_service.dart
+
 import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest_all.dart' as tzdata;
 
+/// Servicio singleton para manejar TODAS las notificaciones de MediScan.
 class NotificationService {
   NotificationService._internal();
   static final NotificationService _instance = NotificationService._internal();
@@ -15,37 +17,19 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
 
-  // Cambié el id para forzar un canal nuevo con el sonido correcto
   static const String _channelId = 'medication_channel_v2';
   static const String _channelName = 'Recordatorios de medicamentos';
   static const String _channelDescription =
       'Notificaciones de toma de medicamentos';
 
-  bool _initialized = false;
   bool _tzInitialized = false;
 
-  // ====== TIMEZONE ======
-  Future<void> _ensureTimeZoneInitialized() async {
-    if (_tzInitialized) return;
-
-    // Inicializa todas las zonas horarias conocidas
-    tzdata.initializeTimeZones();
-
-    // Para Chile continental usamos America/Santiago
-    const String timeZoneName = 'America/Santiago';
-    tz.setLocalLocation(tz.getLocation(timeZoneName));
-
-    _tzInitialized = true;
-    debugPrint('🕒 Timezone inicializado: $timeZoneName');
-  }
-
-  // ====== INIT ======
+  // ========================
+  //   INICIALIZACIÓN GLOBAL
+  // ========================
   Future<void> init() async {
-    if (_initialized) return;
-
     debugPrint('🔧 Iniciando NotificationService...');
 
-    // IMPORTANTE: inicializar timezone antes de usar tz.local
     await _ensureTimeZoneInitialized();
 
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -65,7 +49,7 @@ class NotificationService {
       // Android 13+
       await androidPlugin.requestNotificationsPermission();
 
-      // Canal con sonido personalizado + vibración fuerte
+      // Canal con sonido personalizado + vibración
       await androidPlugin.createNotificationChannel(
         AndroidNotificationChannel(
           _channelId,
@@ -75,7 +59,12 @@ class NotificationService {
           playSound: true,
           enableVibration: true,
           sound: const RawResourceAndroidNotificationSound('sonido'),
-          vibrationPattern: Int64List.fromList([0, 1200, 300, 1500]),
+          vibrationPattern: Int64List.fromList([
+            0, // espera inicial
+            500,
+            250,
+            700,
+          ]),
           showBadge: true,
         ),
       );
@@ -83,7 +72,46 @@ class NotificationService {
       debugPrint('✅ Canal de notificaciones creado ($_channelId)');
     }
 
-    _initialized = true;
+    await _printPendingNotifications();
+  }
+
+  /// Inicializa la base de datos de zonas horarias y fija una local
+  /// (para Chile uso America/Santiago).
+  Future<void> _ensureTimeZoneInitialized() async {
+    if (_tzInitialized) return;
+
+    tzdata.initializeTimeZones();
+    tz.setLocalLocation(tz.getLocation('America/Santiago'));
+    _tzInitialized = true;
+
+    debugPrint('🕒 Timezone inicializado: ${tz.local}');
+  }
+
+  // ============================
+  //     DETALLES DE NOTIFICACIÓN
+  // ============================
+  NotificationDetails _defaultDetails() {
+    return NotificationDetails(
+      android: AndroidNotificationDetails(
+        _channelId,
+        _channelName,
+        channelDescription: _channelDescription,
+        importance: Importance.max,
+        priority: Priority.high,
+        playSound: true,
+        sound: const RawResourceAndroidNotificationSound('sonido'),
+        enableVibration: true,
+        vibrationPattern: Int64List.fromList([
+          0, // espera inicial
+          500,
+          250,
+          700,
+        ]),
+        audioAttributesUsage: AudioAttributesUsage.alarm,
+        ticker: 'Recordatorio de medicamento',
+        styleInformation: const BigTextStyleInformation(''),
+      ),
+    );
   }
 
   // ========================================
@@ -95,7 +123,7 @@ class NotificationService {
     required List<String> days,
     required List<String> times,
   }) async {
-    await init(); // 👈 asegura plugin + timezone
+    await _ensureTimeZoneInitialized();
 
     debugPrint('📅 Programando medicamento: $name');
     debugPrint('   Días: $days');
@@ -140,30 +168,38 @@ class NotificationService {
     await _printPendingNotifications();
   }
 
-  // ============================
-  //     DETALLES DE NOTIFICACIÓN
-  // ============================
-  NotificationDetails _defaultDetails() {
-    return NotificationDetails(
-      android: AndroidNotificationDetails(
-        _channelId,
-        _channelName,
-        channelDescription: _channelDescription,
-        importance: Importance.max,
-        priority: Priority.high,
-        playSound: true,
-        sound: const RawResourceAndroidNotificationSound('sonido'),
-        enableVibration: true,
-        vibrationPattern: Int64List.fromList([
-          0, // espera inicial
-          1200, // vibra 1.2s
-          300, // pausa
-          1500, // vibra 1.5s
-        ]),
-        audioAttributesUsage: AudioAttributesUsage.alarm,
-        ticker: 'Recordatorio de medicamento',
-        styleInformation: const BigTextStyleInformation(''),
-      ),
+  /// Programa un recordatorio extra (pospuesto) para esta medicina,
+  /// dentro de [minutes] minutos desde **ahora**.
+  Future<void> schedulePostponedNotification({
+    required String medicationId,
+    required String name,
+    int minutes = 5,
+  }) async {
+    await _ensureTimeZoneInitialized();
+
+    final scheduled = tz.TZDateTime.now(
+      tz.local,
+    ).add(Duration(minutes: minutes));
+
+    final base = medicationId.hashCode & 0x7fffffff;
+    final id = base ^ scheduled.millisecondsSinceEpoch;
+
+    await _plugin.zonedSchedule(
+      id,
+      'Recordatorio pospuesto 💊',
+      'Tomar $name',
+      scheduled,
+      _defaultDetails(),
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      payload: jsonEncode({
+        'medicationId': medicationId,
+        'name': name,
+        'postponed': true,
+      }),
+    );
+
+    debugPrint(
+      '⏱ Notificación POSPUESTA para $name en $minutes min → $scheduled (id=$id)',
     );
   }
 
@@ -174,8 +210,6 @@ class NotificationService {
     required String medicationId,
     required String name,
   }) async {
-    await init();
-
     final id = (medicationId.hashCode & 0x7fffffff) ^ 9999;
 
     await _plugin.show(
@@ -189,12 +223,13 @@ class NotificationService {
     debugPrint('✅ Notificación inmediata enviada');
   }
 
+  /// Notificación de prueba programada unos segundos en el futuro.
   Future<void> scheduleTestNotification({
     required String medicationId,
     required String name,
     int seconds = 10,
   }) async {
-    await init();
+    await _ensureTimeZoneInitialized();
 
     final id = (medicationId.hashCode & 0x7fffffff) ^ seconds;
 
@@ -209,18 +244,20 @@ class NotificationService {
       scheduled,
       _defaultDetails(),
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      payload: jsonEncode({'medicationId': medicationId, 'name': name}),
+      payload: jsonEncode({
+        'medicationId': medicationId,
+        'name': name,
+        'test': true,
+      }),
     );
 
-    debugPrint('🧪 Notificación programada → $scheduled');
+    debugPrint('🧪 Notificación TEST programada → $scheduled (id=$id)');
   }
 
   // ============================
   //         CANCELAR
   // ============================
   Future<void> cancelMedicationNotifications(String medicationId) async {
-    await init();
-
     debugPrint('🗑 Cancelando notificaciones de $medicationId');
 
     for (var weekday = 1; weekday <= 7; weekday++) {
@@ -229,6 +266,14 @@ class NotificationService {
         await _plugin.cancel(id);
       }
     }
+
+    await _printPendingNotifications();
+  }
+
+  /// Cancela **todas** las notificaciones (se llama al cerrar sesión).
+  Future<void> cancelAllMedications() async {
+    await _plugin.cancelAll();
+    debugPrint('🗑 Todas las notificaciones de medicamentos fueron canceladas');
 
     await _printPendingNotifications();
   }
@@ -269,6 +314,7 @@ class NotificationService {
       case 'V':
         return DateTime.friday;
       case 'Sáb':
+      case 'Sab':
       case 'S':
         return DateTime.saturday;
       case 'Dom':

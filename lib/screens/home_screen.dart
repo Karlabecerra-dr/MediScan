@@ -9,7 +9,6 @@ import '../widgets/medication_card.dart';
 import '../services/notification_service.dart';
 
 import 'add_medication_screen.dart';
-import 'scan_screen.dart';
 import 'medication_detail_screen.dart';
 import 'login_screen.dart';
 
@@ -124,7 +123,6 @@ class _HomeScreenState extends State<HomeScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // ---------------- HEADER ----------------
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
               child: Row(
@@ -152,7 +150,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const Spacer(),
 
-                  // Botón de prueba de notificaciones
                   IconButton(
                     icon: const Icon(
                       Icons.notifications_active_rounded,
@@ -182,16 +179,39 @@ class _HomeScreenState extends State<HomeScreen> {
                     },
                   ),
 
-                  // Cerrar sesión
                   IconButton(
                     icon: const Icon(Icons.logout),
                     tooltip: 'Cerrar sesión',
                     onPressed: () async {
-                      await FirebaseAuth.instance.signOut();
-                      if (!mounted) return;
-                      Navigator.of(
-                        context,
-                      ).pushReplacementNamed(LoginScreen.routeName);
+                      final confirm = await showDialog<bool>(
+                        context: context,
+                        builder: (ctx) => AlertDialog(
+                          title: const Text('Cerrar sesión'),
+                          content: const Text(
+                            '¿Seguro que quieres cerrar tu sesión?',
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.of(ctx).pop(false),
+                              child: const Text('Cancelar'),
+                            ),
+                            FilledButton(
+                              onPressed: () => Navigator.of(ctx).pop(true),
+                              child: const Text('Cerrar sesión'),
+                            ),
+                          ],
+                        ),
+                      );
+
+                      if (confirm == true) {
+                        await FirebaseAuth.instance.signOut();
+
+                        if (!mounted) return;
+
+                        Navigator.of(
+                          context,
+                        ).pushReplacementNamed(LoginScreen.routeName);
+                      }
                     },
                   ),
                 ],
@@ -200,7 +220,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
             const SizedBox(height: 8),
 
-            // ---------------- TIRA DE DÍAS ----------------
             DayStrip(
               selectedDay: _selectedDay,
               onDaySelected: (day) {
@@ -210,7 +229,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
             const SizedBox(height: 12),
 
-            // ---------------- FECHA + BOTONES ----------------
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
@@ -240,7 +258,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
             const SizedBox(height: 4),
 
-            // ---------------- CONTENIDO PRINCIPAL ----------------
             if (user == null)
               const Expanded(
                 child: Center(
@@ -391,7 +408,17 @@ class _HomeScreenState extends State<HomeScreen> {
                                             item.time,
                                           );
                                         },
-                                        onPostpone: () {
+                                        onPostpone: () async {
+                                          await NotificationService()
+                                              .schedulePostponedNotification(
+                                                medicationId:
+                                                    item.medication.id ??
+                                                    item.medication.name,
+                                                name: item.medication.name,
+                                                minutes: 5,
+                                              );
+
+                                          if (!mounted) return;
                                           ScaffoldMessenger.of(
                                             context,
                                           ).showSnackBar(

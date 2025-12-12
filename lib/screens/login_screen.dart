@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../services/auth_service.dart';
-import 'home_screen.dart';
+import 'home_screen.dart'; // 👈 IMPORTANTE para navegar al Home
 
 class LoginScreen extends StatefulWidget {
   static const routeName = '/login';
@@ -18,15 +18,18 @@ class _LoginScreenState extends State<LoginScreen> {
 
   final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
+  final _confirmPasswordCtrl = TextEditingController();
 
   bool _isLoginMode = true; // true = Iniciar sesión, false = Crear cuenta
   bool _isLoading = false;
+  bool _isPasswordVisible = false; // 👁 para mostrar/ocultar
   String? _errorMessage;
 
   @override
   void dispose() {
     _emailCtrl.dispose();
     _passwordCtrl.dispose();
+    _confirmPasswordCtrl.dispose();
     super.dispose();
   }
 
@@ -38,52 +41,57 @@ class _LoginScreenState extends State<LoginScreen> {
       _errorMessage = null;
     });
 
-    final email = _emailCtrl.text.trim();
-    final password = _passwordCtrl.text.trim();
-    final authService = AuthService();
-
     try {
+      final email = _emailCtrl.text.trim();
+      final password = _passwordCtrl.text.trim();
+
+      final auth = AuthService();
+
       if (_isLoginMode) {
-        // Iniciar sesión
-        await authService.signInWithEmail(email: email, password: password);
+        await auth.signInWithEmail(email: email, password: password);
       } else {
-        // Crear cuenta
-        await authService.signUpWithEmail(email: email, password: password);
+        await auth.signUpWithEmail(email: email, password: password);
       }
 
-      // Si llegó aquí, autenticación OK → vamos a Home
+      // ✅ Si llegó aquí, el login/registro fue exitoso.
+      // Aunque tengas StreamBuilder en main.dart, esto asegura
+      // que salgas de la pantalla de login:
       if (!mounted) return;
-      Navigator.pushReplacementNamed(context, HomeScreen.routeName);
-    } on FirebaseAuthException catch (e) {
-      String message = 'Error de autenticación';
-
-      switch (e.code) {
-        case 'user-not-found':
-        case 'wrong-password':
-          message = 'Correo o contraseña incorrectos';
-          break;
-        case 'email-already-in-use':
-          message = 'Este correo ya está registrado';
-          break;
-        case 'invalid-email':
-          message = 'Correo electrónico inválido';
-          break;
-        case 'weak-password':
-          message = 'La contraseña es demasiado débil';
-          break;
-      }
-
-      if (mounted) {
-        setState(() {
-          _errorMessage = message;
-        });
-      }
+      Navigator.of(context).pushReplacementNamed(HomeScreen.routeName);
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _errorMessage = 'Error inesperado: $e';
-        });
+      String message = 'Ocurrió un error. Intenta nuevamente.';
+
+      if (e is FirebaseAuthException) {
+        // Para ver qué código llega realmente (opcional, pero útil)
+        debugPrint('🔐 FirebaseAuthException code: ${e.code}');
+
+        switch (e.code) {
+          case 'wrong-password':
+          case 'invalid-credential': // 👈 En SDK nuevos viene así
+            message = 'La contraseña es incorrecta.';
+            break;
+          case 'user-not-found':
+            message = 'No existe una cuenta con este correo.';
+            break;
+          case 'invalid-email':
+            message = 'El correo no es válido.';
+            break;
+          case 'email-already-in-use':
+            message = 'Este correo ya está registrado.';
+            break;
+          case 'weak-password':
+            message = 'La contraseña es demasiado débil.';
+            break;
+          default:
+            message = e.message ?? message;
+        }
+      } else {
+        message = e.toString();
       }
+
+      setState(() {
+        _errorMessage = message;
+      });
     } finally {
       if (mounted) {
         setState(() {
@@ -166,6 +174,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     key: _formKey,
                     child: Column(
                       children: [
+                        // Correo
                         TextFormField(
                           controller: _emailCtrl,
                           decoration: const InputDecoration(
@@ -183,12 +192,26 @@ class _LoginScreenState extends State<LoginScreen> {
                           },
                         ),
                         const SizedBox(height: 16),
+
+                        // Contraseña (con ojito)
                         TextFormField(
                           controller: _passwordCtrl,
-                          decoration: const InputDecoration(
+                          decoration: InputDecoration(
                             labelText: 'Contraseña',
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _isPasswordVisible
+                                    ? Icons.visibility
+                                    : Icons.visibility_off,
+                              ),
+                              onPressed: () {
+                                setState(() {
+                                  _isPasswordVisible = !_isPasswordVisible;
+                                });
+                              },
+                            ),
                           ),
-                          obscureText: true,
+                          obscureText: !_isPasswordVisible,
                           validator: (value) {
                             if (value == null || value.trim().isEmpty) {
                               return 'Ingresa tu contraseña';
@@ -199,6 +222,29 @@ class _LoginScreenState extends State<LoginScreen> {
                             return null;
                           },
                         ),
+
+                        // Confirmar contraseña SOLO en modo "Crear cuenta"
+                        if (!_isLoginMode) ...[
+                          const SizedBox(height: 16),
+                          TextFormField(
+                            controller: _confirmPasswordCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'Confirmar contraseña',
+                            ),
+                            obscureText: true,
+                            validator: (value) {
+                              if (!_isLoginMode) {
+                                if (value == null || value.trim().isEmpty) {
+                                  return 'Confirma tu contraseña';
+                                }
+                                if (value.trim() != _passwordCtrl.text.trim()) {
+                                  return 'Las contraseñas no coinciden';
+                                }
+                              }
+                              return null;
+                            },
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -238,7 +284,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
 
                   const SizedBox(height: 16),
-                  // Aquí más adelante puedes agregar "Continuar con Google"
                 ],
               ),
             ),

@@ -1,3 +1,5 @@
+// lib/models/medication.dart
+
 class Medication {
   final String? id; // id de Firestore
   final String? userId; // dueño del medicamento
@@ -5,11 +7,11 @@ class Medication {
   final String name;
   final String dose;
   final String presentation;
-  final List<String> days; // ['Lun', 'Mar', ...]
+  final List<String> days; // ['Lun', 'Mar', 'Mié', ...]
   final List<String> times; // ['08:00', '20:00', ...]
   final String status; // 'pendiente', 'tomado', etc.
   final String? description;
-  final Map<String, bool> taken; // clave: "yyyy-MM-dd HH:mm", valor: true/false
+  final Map<String, bool> taken; // clave: "yyyy-MM-dd_HH:mm"
 
   Medication({
     this.id,

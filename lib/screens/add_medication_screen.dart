@@ -308,7 +308,7 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
           );
 
           await NotificationService().scheduleMedication(
-            medicationId: updated.id!,
+            medicationId: original.id!,
             name: updated.name,
             days: updated.days,
             times: updated.times,
@@ -348,7 +348,7 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
         );
 
         await NotificationService().scheduleMedication(
-          medicationId: created.id!,
+          medicationId: docRef.id,
           name: created.name,
           days: created.days,
           times: created.times,
@@ -402,7 +402,6 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            // ID de medicamento (escaneo)
             TextFormField(
               controller: _medIdCtrl,
               readOnly: true,
@@ -417,7 +416,6 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Nombre
             TextFormField(
               controller: _nameCtrl,
               decoration: const InputDecoration(
@@ -432,7 +430,6 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Dosis
             TextFormField(
               controller: _doseCtrl,
               decoration: const InputDecoration(labelText: 'Dosis *'),
@@ -445,14 +442,12 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Presentación
             TextFormField(
               controller: _presentationCtrl,
               decoration: const InputDecoration(labelText: 'Presentación'),
             ),
             const SizedBox(height: 16),
 
-            // Descripción
             TextFormField(
               controller: _descriptionCtrl,
               decoration: const InputDecoration(
@@ -462,7 +457,6 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
             ),
             const SizedBox(height: 24),
 
-            // Días de la semana
             const Text(
               'Días de la semana',
               style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
@@ -495,7 +489,6 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
 
             const SizedBox(height: 24),
 
-            // Horario de toma
             const Text(
               'Horario de toma',
               style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
@@ -535,7 +528,6 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
             const SizedBox(height: 16),
 
             if (_intervalMode) ...[
-              // Configuración de intervalo
               Row(
                 children: [
                   const Text('Cada'),
@@ -585,7 +577,6 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
                     .toList(),
               ),
             ] else ...[
-              // Lista de horas específicas (modo manual)
               ..._times.asMap().entries.map((entry) {
                 final index = entry.key;
                 final time = entry.value;
@@ -621,7 +612,6 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
 
             const SizedBox(height: 24),
 
-            // Botones Guardar / Cancelar
             Row(
               children: [
                 Expanded(
