@@ -1,13 +1,22 @@
 import 'package:flutter/material.dart';
 import '../models/medication.dart';
 
+// Card que representa UNA toma (medicamento + hora específica).
+// El estado "tomado" se maneja por toma (isTaken), no por medicamento completo.
 class MedicationCard extends StatelessWidget {
+  // Datos del medicamento
   final Medication medication;
-  final String time; // "HH:MM"
-  final bool isTaken; // estado de ESTA toma
-  final VoidCallback onTap;
-  final VoidCallback onTaken;
-  final VoidCallback onPostpone;
+
+  // Hora de la toma en formato "HH:mm"
+  final String time;
+
+  // Estado de esta toma específica (true = tomada)
+  final bool isTaken;
+
+  // Acciones del card
+  final VoidCallback onTap; // abre detalle
+  final VoidCallback onTaken; // marca como tomada
+  final VoidCallback onPostpone; // pospone recordatorio
 
   const MedicationCard({
     super.key,
@@ -23,7 +32,7 @@ class MedicationCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    // --- Chip de estado (colores) ---
+    // Estado visual (texto + colores) según si esta toma ya fue marcada
     final String statusLabel = isTaken ? 'Tomado' : 'Pendiente';
     final Color statusBg = isTaken
         ? Colors.green.shade100
@@ -37,6 +46,7 @@ class MedicationCard extends StatelessWidget {
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: InkWell(
+        // Permite efecto ripple manteniendo bordes redondeados
         borderRadius: BorderRadius.circular(16),
         onTap: onTap,
         child: Padding(
@@ -44,11 +54,13 @@ class MedicationCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ---------------- PRIMERA FILA ----------------
+              // -------------------------
+              // Fila principal
+              // -------------------------
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Punto de color
+                  // Punto de color (marca visual rápida)
                   Container(
                     width: 14,
                     height: 14,
@@ -59,12 +71,12 @@ class MedicationCard extends StatelessWidget {
                     ),
                   ),
 
-                  // Texto principal (hora + nombre + dosis)
+                  // Bloque de texto: hora + nombre + detalle (dosis/presentación)
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Hora + nombre (con espacio para que no se corte tan feo)
+                        // Hora · Nombre (nombre con 2 líneas + ellipsis)
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -78,7 +90,6 @@ class MedicationCard extends StatelessWidget {
                             const SizedBox(width: 4),
                             const Text('·'),
                             const SizedBox(width: 4),
-                            // Nombre del medicamento con 2 líneas y ellipsis
                             Expanded(
                               child: Text(
                                 medication.name,
@@ -93,6 +104,8 @@ class MedicationCard extends StatelessWidget {
                           ],
                         ),
                         const SizedBox(height: 4),
+
+                        // Dosis + presentación
                         Text(
                           '${medication.dose} · ${medication.presentation}',
                           style: TextStyle(
@@ -106,7 +119,7 @@ class MedicationCard extends StatelessWidget {
 
                   const SizedBox(width: 8),
 
-                  // Chip de estado + botón principal
+                  // Columna derecha: chip de estado + botón principal
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
@@ -130,6 +143,8 @@ class MedicationCard extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 12),
+
+                      // Botón de acción (se deshabilita si ya fue tomado)
                       SizedBox(
                         width: 110,
                         child: FilledButton(
@@ -147,7 +162,9 @@ class MedicationCard extends StatelessWidget {
 
               const SizedBox(height: 8),
 
-              // ---------------- FILA POSPONER ----------------
+              // -------------------------
+              // Acción secundaria: posponer
+              // -------------------------
               Align(
                 alignment: Alignment.centerLeft,
                 child: TextButton(

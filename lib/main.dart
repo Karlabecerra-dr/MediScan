@@ -11,20 +11,23 @@ import 'screens/scan_screen.dart';
 import 'screens/medication_detail_screen.dart';
 import 'screens/login_screen.dart';
 
-// 👇 IMPORTA EL SERVICIO DE NOTIFICACIONES
+// Servicio encargado de inicializar y manejar las notificaciones locales
 import 'services/notification_service.dart';
 
 Future<void> main() async {
+  // Asegura que Flutter esté correctamente inicializado
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Inicializa Firebase con la configuración correspondiente a la plataforma
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  // Necesario para usar DateFormat con 'es'
+  // Habilita el formateo de fechas en español
   await initializeDateFormatting('es', null);
 
-  // 👇 INICIALIZAR NOTIFICACIONES (canal, timezone, permisos, etc.)
+  // Inicializa el sistema de notificaciones (canales, permisos y timezone)
   await NotificationService().init();
 
+  // Lanza la aplicación
   runApp(const MediScanApp());
 }
 
@@ -34,31 +37,40 @@ class MediScanApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      // Nombre de la aplicación
       title: 'MediScan',
+
+      // Oculta el banner de debug
       debugShowCheckedModeBanner: false,
+
+      // Tema global de la app
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF006875)),
       ),
 
-      // Pantalla según si hay usuario logueado o no
+      // Pantalla inicial según estado de autenticación
       home: StreamBuilder<User?>(
         stream: FirebaseAuth.instance.authStateChanges(),
         builder: (context, snapshot) {
+          // Mientras se valida la sesión
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Scaffold(
               body: Center(child: CircularProgressIndicator()),
             );
           }
 
+          // Usuario autenticado → Home
           if (snapshot.hasData) {
             return const HomeScreen();
-          } else {
-            return const LoginScreen();
           }
+
+          // Sin sesión → Login
+          return const LoginScreen();
         },
       ),
 
+      // Rutas simples de la aplicación
       routes: {
         HomeScreen.routeName: (_) => const HomeScreen(),
         AddMedicationScreen.routeName: (_) => const AddMedicationScreen(),
@@ -66,6 +78,7 @@ class MediScanApp extends StatelessWidget {
         LoginScreen.routeName: (_) => const LoginScreen(),
       },
 
+      // Ruta con argumentos (detalle de medicamento)
       onGenerateRoute: (settings) {
         if (settings.name == MedicationDetailScreen.routeName) {
           final med = settings.arguments as Medication;

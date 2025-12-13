@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../models/medication.dart';
+import '../widgets/account_dialog.dart';
 import '../widgets/day_strip.dart';
 import '../widgets/medication_card.dart';
 import '../services/notification_service.dart';
@@ -22,22 +23,23 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  // Día seleccionado en el DayStrip (por defecto hoy)
   DateTime _selectedDay = DateTime.now();
 
-  /// Convierte weekday (1–7) a etiqueta "Lun", "Mar", ...
+  // Convierte weekday (1–7) a etiqueta corta usada en la app ("Lun", "Mar", ...)
   String _weekdayLabel(int weekday) {
     const labels = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
     return labels[weekday - 1];
   }
 
-  /// Clave para el mapa `taken` de un medicamento
-  /// Formato: YYYY-MM-DD_HH:MM
+  // Construye la clave usada en el mapa `taken` del medicamento
+  // Formato: yyyy-MM-dd_HH:mm  (ej: 2025-12-12_08:00)
   String _takenKeyFor(DateTime day, String time) {
     final dateStr = DateFormat('yyyy-MM-dd').format(day);
     return '${dateStr}_$time';
   }
 
-  /// Marca **solo ESTA TOMA** como "tomada" en Firestore usando el mapa `taken`
+  // Marca solo la toma de esa hora como "tomada" (se guarda en medications/{id}.taken.{key} = true)
   Future<void> _markAsTaken(Medication med, String time) async {
     if (med.id == null) return;
 
@@ -49,7 +51,7 @@ class _HomeScreenState extends State<HomeScreen> {
         .update({'taken.$key': true});
   }
 
-  /// Elimina un medicamento en Firestore Y cancela sus notificaciones
+  // Elimina el medicamento y además cancela todas sus notificaciones programadas
   Future<void> _deleteMedication(Medication med) async {
     if (med.id == null) return;
 
@@ -59,7 +61,7 @@ class _HomeScreenState extends State<HomeScreen> {
     await NotificationService().cancelMedicationNotifications(id);
   }
 
-  /// Confirmar y luego eliminar (para usar con Dismissible)
+  // Diálogo de confirmación antes de eliminar (se usa con Dismissible)
   Future<bool> _confirmAndDelete(Medication med) async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -83,13 +85,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
     try {
       await _deleteMedication(med);
+
       if (!mounted) return false;
+
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Medicamento eliminado')));
       return true;
     } catch (e) {
       if (!mounted) return false;
+
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Error al eliminar: $e')));
@@ -97,6 +102,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // Abre pantalla para agregar medicamento manualmente
   void _openAddMedication() {
     Navigator.push(
       context,
@@ -104,6 +110,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // Abre pantalla para agregar medicamento pero disparando escaneo al entrar
   void _openScan() {
     Navigator.push(
       context,
@@ -113,113 +120,123 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // Confirma cierre de sesión y redirige al login
+  Future<void> _confirmAndLogout() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Cerrar sesión'),
+        content: const Text('¿Seguro que quieres cerrar tu sesión?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Cerrar sesión'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      await FirebaseAuth.instance.signOut();
+
+      if (!mounted) return;
+
+      Navigator.of(context).pushReplacementNamed(LoginScreen.routeName);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Etiquetas para el header (fecha y día seleccionado)
     final dateLabel = DateFormat('EEE, d MMM', 'es').format(_selectedDay);
     final selectedDayLabel = _weekdayLabel(_selectedDay.weekday);
+
+    // Usuario actual (si no existe, se muestra aviso)
     final user = FirebaseAuth.instance.currentUser;
 
     return Scaffold(
+      // AppBar principal de la pantalla Home
+      appBar: AppBar(
+        title: Row(
+          children: [
+            // Logo pequeño (con fallback si falla el asset)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.asset(
+                'assets/logo.png',
+                width: 32,
+                height: 32,
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => const Icon(Icons.local_hospital),
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Text('MediScan'),
+          ],
+        ),
+        actions: [
+          // Botón para pruebas rápidas de notificaciones
+          IconButton(
+            icon: const Icon(
+              Icons.notifications_active_rounded,
+              color: Colors.orange,
+            ),
+            tooltip: 'Probar notificaciones',
+            onPressed: () async {
+              // Aviso rápido (no bloqueante) para indicar que se ejecutarán pruebas
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('🚀 Ejecutando pruebas de notificación...'),
+                  duration: Duration(seconds: 2),
+                ),
+              );
+
+              // Notificación inmediata
+              await NotificationService().showImmediateTestNotification(
+                medicationId: 'test1',
+                name: 'Prueba Inmediata',
+              );
+
+              // Notificación programada a 10 segundos
+              await NotificationService().scheduleTestNotification(
+                medicationId: 'test2',
+                name: 'Prueba 10 seg',
+                seconds: 10,
+              );
+            },
+          ),
+
+          // Diálogo de cuenta (nombre/correo + reset password)
+          IconButton(
+            icon: const Icon(Icons.person),
+            tooltip: 'Mi cuenta',
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (_) => const AccountDialog(),
+              );
+            },
+          ),
+
+          // Cierre de sesión con confirmación
+          IconButton(
+            icon: const Icon(Icons.logout),
+            tooltip: 'Cerrar sesión',
+            onPressed: _confirmAndLogout,
+          ),
+        ],
+      ),
+
       body: SafeArea(
         child: Column(
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-              child: Row(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(16),
-                    child: Image.asset(
-                      'assets/logo.png',
-                      width: 40,
-                      height: 40,
-                      fit: BoxFit.contain,
-                      errorBuilder: (context, error, stackTrace) {
-                        return const Icon(
-                          Icons.local_hospital,
-                          size: 40,
-                          color: Colors.blue,
-                        );
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  const Text(
-                    'MediScan',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                  const Spacer(),
-
-                  IconButton(
-                    icon: const Icon(
-                      Icons.notifications_active_rounded,
-                      color: Colors.orange,
-                    ),
-                    tooltip: 'Probar notificaciones',
-                    onPressed: () async {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            '🚀 Ejecutando pruebas de notificación...',
-                          ),
-                          duration: Duration(seconds: 2),
-                        ),
-                      );
-
-                      await NotificationService().showImmediateTestNotification(
-                        medicationId: 'test1',
-                        name: 'Prueba Inmediata',
-                      );
-
-                      await NotificationService().scheduleTestNotification(
-                        medicationId: 'test2',
-                        name: 'Prueba 10 seg',
-                        seconds: 10,
-                      );
-                    },
-                  ),
-
-                  IconButton(
-                    icon: const Icon(Icons.logout),
-                    tooltip: 'Cerrar sesión',
-                    onPressed: () async {
-                      final confirm = await showDialog<bool>(
-                        context: context,
-                        builder: (ctx) => AlertDialog(
-                          title: const Text('Cerrar sesión'),
-                          content: const Text(
-                            '¿Seguro que quieres cerrar tu sesión?',
-                          ),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.of(ctx).pop(false),
-                              child: const Text('Cancelar'),
-                            ),
-                            FilledButton(
-                              onPressed: () => Navigator.of(ctx).pop(true),
-                              child: const Text('Cerrar sesión'),
-                            ),
-                          ],
-                        ),
-                      );
-
-                      if (confirm == true) {
-                        await FirebaseAuth.instance.signOut();
-
-                        if (!mounted) return;
-
-                        Navigator.of(
-                          context,
-                        ).pushReplacementNamed(LoginScreen.routeName);
-                      }
-                    },
-                  ),
-                ],
-              ),
-            ),
-
             const SizedBox(height: 8),
 
+            // Barra de selección de días (hoy, mañana, etc.)
             DayStrip(
               selectedDay: _selectedDay,
               onDaySelected: (day) {
@@ -229,6 +246,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
             const SizedBox(height: 12),
 
+            // Header: fecha + botones de agregar/escanear
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
@@ -258,6 +276,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
             const SizedBox(height: 4),
 
+            // Si no hay usuario autenticado, se muestra un mensaje simple
             if (user == null)
               const Expanded(
                 child: Center(
@@ -269,24 +288,29 @@ class _HomeScreenState extends State<HomeScreen> {
               )
             else
               Expanded(
+                // StreamBuilder que escucha los medicamentos del usuario
                 child: StreamBuilder<QuerySnapshot>(
                   stream: FirebaseFirestore.instance
                       .collection('medications')
                       .where('userId', isEqualTo: user.uid)
                       .snapshots(),
                   builder: (context, snapshot) {
+                    // Estado de carga
                     if (snapshot.connectionState == ConnectionState.waiting) {
                       return const Center(child: CircularProgressIndicator());
                     }
 
+                    // Estado de error
                     if (snapshot.hasError) {
                       return Center(
                         child: Text('Error al cargar: ${snapshot.error}'),
                       );
                     }
 
+                    // Documentos recibidos
                     final docs = snapshot.data?.docs ?? [];
 
+                    // Parseo de Firestore -> Medication
                     final meds = docs
                         .map(
                           (d) => Medication.fromMap(
@@ -296,7 +320,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         )
                         .toList();
 
-                    // Compatibilidad: etiquetas nuevas y antiguas
+                    // Compatibilidad con etiquetas antiguas (L, M, X...) y nuevas (Lun, Mar, Mié...)
                     const legacyMap = {
                       'Lun': 'L',
                       'Mar': 'M',
@@ -310,15 +334,18 @@ class _HomeScreenState extends State<HomeScreen> {
                     final legacyLabel =
                         legacyMap[selectedDayLabel] ?? selectedDayLabel;
 
+                    // Lista final de tomas del día (medicamento + hora)
                     final dosesToday = <_DoseItem>[];
 
+                    // Arma las tomas del día filtrando por día seleccionado
                     for (final med in meds) {
-                      // Si el medicamento no aplica para el día seleccionado, se salta
+                      // Si el medicamento no aplica al día actual, se omite
                       if (!med.days.contains(selectedDayLabel) &&
                           !med.days.contains(legacyLabel)) {
                         continue;
                       }
 
+                      // Para cada hora del medicamento, se crea una "toma" independiente
                       for (final t in med.times) {
                         final key = _takenKeyFor(_selectedDay, t);
                         final isTaken = med.taken[key] == true;
@@ -329,10 +356,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       }
                     }
 
-                    // Ordenar por hora "HH:MM"
+                    // Ordena por hora (string "HH:mm" funciona bien lexicográficamente)
                     dosesToday.sort((a, b) => a.time.compareTo(b.time));
 
-                    // Pendientes por dosis, no por medicamento completo
+                    // Conteo simple de pendientes para el subtitle del header
                     final pendingCount = dosesToday
                         .where((d) => !d.isTaken)
                         .length;
@@ -342,6 +369,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     return Column(
                       children: [
+                        // Subtitle superior (pendientes del día)
                         Padding(
                           padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                           child: Align(
@@ -355,6 +383,8 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           ),
                         ),
+
+                        // Lista de tomas (vacía o con cards)
                         Expanded(
                           child: dosesToday.isEmpty
                               ? const Center(
@@ -368,6 +398,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   itemBuilder: (context, index) {
                                     final item = dosesToday[index];
 
+                                    // Dismissible para eliminar (swipe a la izquierda)
                                     return Dismissible(
                                       key: Key(
                                         item.medication.id ??
@@ -385,12 +416,18 @@ class _HomeScreenState extends State<HomeScreen> {
                                           color: Colors.white,
                                         ),
                                       ),
+
+                                      // Confirma antes de eliminar
                                       confirmDismiss: (_) =>
                                           _confirmAndDelete(item.medication),
+
+                                      // Card principal de la toma
                                       child: MedicationCard(
                                         medication: item.medication,
                                         time: item.time,
                                         isTaken: item.isTaken,
+
+                                        // Abre detalle del medicamento
                                         onTap: () {
                                           Navigator.push(
                                             context,
@@ -402,12 +439,16 @@ class _HomeScreenState extends State<HomeScreen> {
                                             ),
                                           );
                                         },
+
+                                        // Marca como tomada la hora específica
                                         onTaken: () async {
                                           await _markAsTaken(
                                             item.medication,
                                             item.time,
                                           );
                                         },
+
+                                        // Posponer: agenda recordatorio extra en 5 minutos
                                         onPostpone: () async {
                                           await NotificationService()
                                               .schedulePostponedNotification(
@@ -419,6 +460,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                               );
 
                                           if (!mounted) return;
+
                                           ScaffoldMessenger.of(
                                             context,
                                           ).showSnackBar(
@@ -446,7 +488,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-/// Helper interno para la lista de tomas del día
+// Estructura interna para trabajar "tomas del día":
+// Un medicamento puede tener varias horas, por eso se separa en items por hora.
 class _DoseItem {
   final Medication medication;
   final String time;

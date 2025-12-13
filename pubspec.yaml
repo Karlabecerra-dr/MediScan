@@ -37,7 +37,7 @@ flutter:
 
 flutter_launcher_icons:
   android: true
-  ios: false        # ponlo en false si no compila para iOS
+  ios: false        #en false porque no compila para iOS
   image_path: "assets/logo.png"
   min_sdk_android: 21
 
@@ -45,7 +45,7 @@ flutter_native_splash:
   color: "#FFFFFF"
   image: assets/logo.png
   android: true
-  ios: false        # igual acá, si solo usa Android
+  ios: false        #también porque solo usa Android
   android_12:
     color: "#FFFFFF"
     image: assets/logo.png

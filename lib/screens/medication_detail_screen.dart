@@ -17,6 +17,8 @@ class MedicationDetailScreen extends StatefulWidget {
 }
 
 class _MedicationDetailScreenState extends State<MedicationDetailScreen> {
+  // Confirma con el usuario y, si acepta, elimina el medicamento en Firestore
+  // y cancela todas las notificaciones asociadas.
   Future<void> _deleteMedication(
     BuildContext context,
     Medication medication,
@@ -43,15 +45,18 @@ class _MedicationDetailScreenState extends State<MedicationDetailScreen> {
       ),
     );
 
+    // Si el usuario cancela o la pantalla ya no está montada, corto aquí
     if (confirmed != true || !context.mounted) return;
 
     try {
+      // Solo se puede borrar si existe un id real en Firestore
       if (medication.id != null) {
-        // Cancelar notificaciones asociadas
+        // Primero cancelo notificaciones para no dejar recordatorios huérfanos
         await NotificationService().cancelMedicationNotifications(
           medication.id!,
         );
 
+        // Luego elimino el documento
         await FirebaseFirestore.instance
             .collection('medications')
             .doc(medication.id)
@@ -60,6 +65,7 @@ class _MedicationDetailScreenState extends State<MedicationDetailScreen> {
 
       if (!context.mounted) return;
 
+      // Feedback de éxito
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('${medication.name} eliminado correctamente'),
@@ -68,12 +74,15 @@ class _MedicationDetailScreenState extends State<MedicationDetailScreen> {
         ),
       );
 
+      // Vuelve a la pantalla anterior
       Navigator.pop(context);
     } catch (e) {
-      debugPrint('❌ Error al eliminar medicamento: $e');
+      // Log para debug
+      debugPrint('Error al eliminar medicamento: $e');
 
       if (!context.mounted) return;
 
+      // Feedback de error
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error al eliminar: $e'),
@@ -84,6 +93,8 @@ class _MedicationDetailScreenState extends State<MedicationDetailScreen> {
     }
   }
 
+  // Abre la pantalla de edición reutilizando AddMedicationScreen.
+  // Al volver, no se fuerza recarga acá porque la lista principal se refresca en Home.
   void _editMedication(BuildContext context, Medication medication) {
     Navigator.push(
       context,
@@ -91,9 +102,8 @@ class _MedicationDetailScreenState extends State<MedicationDetailScreen> {
         builder: (_) => AddMedicationScreen(medication: medication),
       ),
     ).then((_) {
-      // No recargamos nada aquí porque los cambios
-      // se verán al volver al Home. En esta pantalla
-      // preferimos mantener la versión "local".
+      // No recargo aquí: esta pantalla muestra una versión "local"
+      // y al volver al Home se ven los cambios.
     });
   }
 
@@ -102,6 +112,7 @@ class _MedicationDetailScreenState extends State<MedicationDetailScreen> {
     final medication = widget.medication;
     final theme = Theme.of(context);
 
+    // Texto de descripción con fallback si viene vacío
     final String descriptionText;
     if (medication.description == null ||
         medication.description!.trim().isEmpty) {
@@ -114,11 +125,14 @@ class _MedicationDetailScreenState extends State<MedicationDetailScreen> {
       appBar: AppBar(
         title: Text(medication.name),
         actions: [
+          // Editar medicamento
           IconButton(
             icon: const Icon(Icons.edit_outlined),
             tooltip: 'Editar',
             onPressed: () => _editMedication(context, medication),
           ),
+
+          // Eliminar medicamento
           IconButton(
             icon: const Icon(Icons.delete_outline),
             tooltip: 'Eliminar',
@@ -130,7 +144,9 @@ class _MedicationDetailScreenState extends State<MedicationDetailScreen> {
         padding: const EdgeInsets.all(16),
         child: ListView(
           children: [
+            // -------------------------
             // Dosis + presentación
+            // -------------------------
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -177,7 +193,9 @@ class _MedicationDetailScreenState extends State<MedicationDetailScreen> {
 
             const SizedBox(height: 16),
 
+            // -------------------------
             // Descripción
+            // -------------------------
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -206,7 +224,9 @@ class _MedicationDetailScreenState extends State<MedicationDetailScreen> {
               ),
             ),
 
-            // ID del medicamento (solo si existe medId)
+            // -------------------------
+            // ID escaneado (si existe)
+            // -------------------------
             if (medication.medId != null &&
                 medication.medId!.trim().isNotEmpty) ...[
               const SizedBox(height: 16),
@@ -234,7 +254,9 @@ class _MedicationDetailScreenState extends State<MedicationDetailScreen> {
 
             const SizedBox(height: 16),
 
+            // -------------------------
             // Días de la semana
+            // -------------------------
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -279,7 +301,9 @@ class _MedicationDetailScreenState extends State<MedicationDetailScreen> {
 
             const SizedBox(height: 16),
 
+            // -------------------------
             // Horarios
+            // -------------------------
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -329,7 +353,9 @@ class _MedicationDetailScreenState extends State<MedicationDetailScreen> {
 
             const SizedBox(height: 16),
 
+            // -------------------------
             // Estado
+            // -------------------------
             Card(
               color: _getStatusColor(medication.status),
               child: Padding(
@@ -359,6 +385,7 @@ class _MedicationDetailScreenState extends State<MedicationDetailScreen> {
     );
   }
 
+  // Color asociado al estado del medicamento
   Color _getStatusColor(String status) {
     switch (status.toLowerCase()) {
       case 'tomado':
@@ -372,6 +399,7 @@ class _MedicationDetailScreenState extends State<MedicationDetailScreen> {
     }
   }
 
+  // Ícono asociado al estado del medicamento
   IconData _getStatusIcon(String status) {
     switch (status.toLowerCase()) {
       case 'tomado':
@@ -385,6 +413,7 @@ class _MedicationDetailScreenState extends State<MedicationDetailScreen> {
     }
   }
 
+  // Texto "bonito" para mostrar el estado
   String _getStatusText(String status) {
     switch (status.toLowerCase()) {
       case 'tomado':

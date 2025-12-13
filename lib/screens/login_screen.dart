@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../services/auth_service.dart';
-import 'home_screen.dart'; // 👈 IMPORTANTE para navegar al Home
+import 'home_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   static const routeName = '/login';
@@ -14,60 +14,79 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  // Key del formulario para validar antes de enviar
   final _formKey = GlobalKey<FormState>();
 
+  // Controllers de los campos
+  final _nameCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   final _confirmPasswordCtrl = TextEditingController();
 
-  bool _isLoginMode = true; // true = Iniciar sesión, false = Crear cuenta
-  bool _isLoading = false;
-  bool _isPasswordVisible = false; // 👁 para mostrar/ocultar
-  String? _errorMessage;
+  // Estado de la UI
+  bool _isLoginMode = true; // true = login, false = registro
+  bool _isLoading = false; // deshabilita botones y muestra spinner
+  bool _isPasswordVisible = false; // controla el "ojito" de contraseña
+  String? _errorMessage; // mensaje de error visible arriba del form
 
   @override
   void dispose() {
+    // Limpieza de controllers
+    _nameCtrl.dispose();
     _emailCtrl.dispose();
     _passwordCtrl.dispose();
     _confirmPasswordCtrl.dispose();
     super.dispose();
   }
 
+  // Envía el formulario:
+  // - Login: email + password
+  // - Registro: name + email + password (y confirmación)
   Future<void> _submit() async {
+    // Validación local del formulario
     if (!_formKey.currentState!.validate()) return;
 
+    // Estado "cargando" + limpia errores anteriores
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
     try {
+      // Normaliza textos
+      final name = _nameCtrl.text.trim();
       final email = _emailCtrl.text.trim();
       final password = _passwordCtrl.text.trim();
 
+      // Servicio de autenticación (encapsula FirebaseAuth)
       final auth = AuthService();
 
       if (_isLoginMode) {
+        // LOGIN: solo email + password
         await auth.signInWithEmail(email: email, password: password);
       } else {
-        await auth.signUpWithEmail(email: email, password: password);
+        // REGISTRO: name + email + password
+        await auth.signUpWithEmail(
+          name: name,
+          email: email,
+          password: password,
+        );
       }
 
-      // ✅ Si llegó aquí, el login/registro fue exitoso.
-      // Aunque tengas StreamBuilder en main.dart, esto asegura
-      // que salgas de la pantalla de login:
+      // Si se autentica ok, redirige al Home
       if (!mounted) return;
       Navigator.of(context).pushReplacementNamed(HomeScreen.routeName);
     } catch (e) {
+      // Mensaje base por si no calza con ningún caso
       String message = 'Ocurrió un error. Intenta nuevamente.';
 
+      // Errores típicos de FirebaseAuth
       if (e is FirebaseAuthException) {
-        // Para ver qué código llega realmente (opcional, pero útil)
-        debugPrint('🔐 FirebaseAuthException code: ${e.code}');
+        debugPrint('FirebaseAuthException code: ${e.code}');
 
         switch (e.code) {
           case 'wrong-password':
-          case 'invalid-credential': // 👈 En SDK nuevos viene así
+          case 'invalid-credential':
             message = 'La contraseña es incorrecta.';
             break;
           case 'user-not-found':
@@ -86,13 +105,16 @@ class _LoginScreenState extends State<LoginScreen> {
             message = e.message ?? message;
         }
       } else {
+        // Cualquier otro error
         message = e.toString();
       }
 
+      // Muestra el error arriba del formulario
       setState(() {
         _errorMessage = message;
       });
     } finally {
+      // Vuelve a habilitar UI si la pantalla sigue montada
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -105,6 +127,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
+    // Textos que cambian según modo
     final title = _isLoginMode ? 'Iniciar sesión' : 'Crear cuenta';
     final actionText = _isLoginMode ? 'Entrar' : 'Registrarme';
 
@@ -118,7 +141,7 @@ class _LoginScreenState extends State<LoginScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Logo / título
+                  // Header con logo + nombre de la app
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -143,6 +166,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 24),
 
+                  // Título (login / registro)
                   Text(
                     title,
                     textAlign: TextAlign.center,
@@ -153,6 +177,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 16),
 
+                  // Caja de error (si existe)
                   if (_errorMessage != null)
                     Container(
                       margin: const EdgeInsets.only(bottom: 16),
@@ -170,11 +195,31 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
 
+                  // Formulario principal
                   Form(
                     key: _formKey,
                     child: Column(
                       children: [
-                        // Correo
+                        // Nombre solo en modo registro
+                        if (!_isLoginMode) ...[
+                          TextFormField(
+                            controller: _nameCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'Nombre',
+                            ),
+                            validator: (value) {
+                              if (!_isLoginMode) {
+                                if (value == null || value.trim().isEmpty) {
+                                  return 'Ingresa tu nombre';
+                                }
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 16),
+                        ],
+
+                        // Email
                         TextFormField(
                           controller: _emailCtrl,
                           decoration: const InputDecoration(
@@ -193,7 +238,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         const SizedBox(height: 16),
 
-                        // Contraseña (con ojito)
+                        // Password con toggle de visibilidad
                         TextFormField(
                           controller: _passwordCtrl,
                           decoration: InputDecoration(
@@ -223,7 +268,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           },
                         ),
 
-                        // Confirmar contraseña SOLO en modo "Crear cuenta"
+                        // Confirmación solo en registro
                         if (!_isLoginMode) ...[
                           const SizedBox(height: 16),
                           TextFormField(
@@ -251,6 +296,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                   const SizedBox(height: 24),
 
+                  // Botón principal (entrar / registrarme)
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton(
@@ -267,6 +313,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                   const SizedBox(height: 16),
 
+                  // Toggle entre login y registro
                   TextButton(
                     onPressed: _isLoading
                         ? null
@@ -274,6 +321,10 @@ class _LoginScreenState extends State<LoginScreen> {
                             setState(() {
                               _isLoginMode = !_isLoginMode;
                               _errorMessage = null;
+
+                              // Limpieza mínima al cambiar de modo
+                              _confirmPasswordCtrl.clear();
+                              if (_isLoginMode) _nameCtrl.clear();
                             });
                           },
                     child: Text(
