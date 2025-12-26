@@ -11,8 +11,8 @@ plugins {
 android {
     namespace = "com.example.mediscan"
 
-    // Requisito de flutter_local_notifications: compileSdk 35
-    compileSdk = 35
+    // Requisito de flutter_local_notifications: compileSdk 36
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     defaultConfig {

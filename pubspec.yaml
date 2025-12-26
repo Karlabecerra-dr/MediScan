@@ -20,6 +20,7 @@ dependencies:
   permission_handler: any
   cupertino_icons: any
 
+  google_sign_in: ^6.2.1
   firebase_auth: ^5.0.0
 
 dev_dependencies:

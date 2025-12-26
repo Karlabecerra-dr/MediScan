@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 
 import '../models/medication.dart';
 import 'notification_service.dart';
@@ -36,12 +37,66 @@ class AuthService {
 
       return credential;
     } on FirebaseAuthException catch (e) {
-      // Errores típicos de FirebaseAuth (wrong-password, user-not-found, etc.)
       debugPrint('Auth error (signIn): ${e.code} - ${e.message}');
       throw e;
     } catch (e) {
-      // Cualquier otro error inesperado
       debugPrint('Unknown auth error (signIn): $e');
+      rethrow;
+    }
+  }
+
+  // ============================
+  //      LOGIN CON GOOGLE
+  // ============================
+  Future<UserCredential> signInWithGoogle() async {
+    try {
+      final googleSignIn = GoogleSignIn();
+
+      // (Opcional pero recomendado) para que siempre pregunte cuenta
+      // Si lo encuentras molesto, borra estas 2 líneas.
+      await googleSignIn.signOut();
+
+      final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
+      if (googleUser == null) {
+        // Usuario cerró/canceló el login
+        throw FirebaseAuthException(
+          code: 'ERROR_ABORTED_BY_USER',
+          message: 'Inicio de sesión con Google cancelado.',
+        );
+      }
+
+      final googleAuth = await googleUser.authentication;
+
+      final oauthCredential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      final userCredential = await _auth.signInWithCredential(oauthCredential);
+
+      // refrescar user
+      await userCredential.user?.reload();
+
+      final user = _auth.currentUser;
+      if (user != null) {
+        // Asegura documento en Firestore (sin pisar lo que exista)
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+          'name': user.displayName ?? '',
+          'email': user.email ?? '',
+          'provider': 'google',
+          'lastLoginAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+
+      // IMPORTANTÍSIMO: mantener tu lógica actual
+      await _resyncNotificationsForUser(_auth.currentUser);
+
+      return userCredential;
+    } on FirebaseAuthException catch (e) {
+      debugPrint('Auth error (Google): ${e.code} - ${e.message}');
+      throw e;
+    } catch (e) {
+      debugPrint('Unknown auth error (Google): $e');
       rethrow;
     }
   }
@@ -97,6 +152,11 @@ class AuthService {
     try {
       // Antes de cerrar sesión, limpio notificaciones locales
       await NotificationService().cancelAllMedications();
+
+      // Cierra sesión Google si estaba en uso
+      try {
+        await GoogleSignIn().signOut();
+      } catch (_) {}
 
       // Luego cierro sesión en FirebaseAuth
       await _auth.signOut();

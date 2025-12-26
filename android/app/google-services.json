@@ -12,7 +12,20 @@
           "package_name": "com.example.mediscan"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "646225790950-h2ojdakje2lc0e3evr077i2ihso1q1u1.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.mediscan",
+            "certificate_hash": "e00f8cc73caddfd61d7319c2555a65e3117f2722"
+          }
+        },
+        {
+          "client_id": "646225790950-nfkjhqnhd16chv6urpjhe7dtc8u4kkbf.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyDxxj0pi4b0TNnb59qN5RmcPdKgxb312SY"
@@ -20,7 +33,19 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "646225790950-nfkjhqnhd16chv6urpjhe7dtc8u4kkbf.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "646225790950-orren4rs39dhh98bk5ltv9gcc0q02c39.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.mediscan"
+              }
+            }
+          ]
         }
       }
     }

@@ -39,6 +39,40 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  //Para entrar con google
+  Future<void> _signInWithGoogle() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      // OJO: esto lo implementamos en AuthService en el siguiente paso (punto 3)
+      await AuthService().signInWithGoogle();
+
+      if (!mounted) return;
+      Navigator.of(context).pushReplacementNamed(HomeScreen.routeName);
+    } catch (e) {
+      if (!mounted) return;
+
+      String message = 'No se pudo iniciar con Google. Intenta nuevamente.';
+
+      if (e is FirebaseAuthException) {
+        switch (e.code) {
+          case 'ERROR_ABORTED_BY_USER':
+            message = 'Inicio con Google cancelado.';
+            break;
+          default:
+            message = e.message ?? message;
+        }
+      } else {
+        message = e.toString();
+      }
+
+      setState(() => _errorMessage = message);
+    }
+  }
+
   // Envía el formulario:
   // - Login: email + password
   // - Registro: name + email + password (y confirmación)
@@ -312,6 +346,31 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
 
                   const SizedBox(height: 16),
+                  // Separador
+                  Row(
+                    children: const [
+                      Expanded(child: Divider()),
+                      Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 12),
+                        child: Text('o'),
+                      ),
+                      Expanded(child: Divider()),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Botón Google (solo en login)
+                  if (_isLoginMode)
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: _isLoading ? null : _signInWithGoogle,
+                        icon: const Icon(Icons.g_mobiledata, size: 28),
+                        label: const Text('Continuar con Google'),
+                      ),
+                    ),
+
+                  if (_isLoginMode) const SizedBox(height: 16),
 
                   // Toggle entre login y registro
                   TextButton(
