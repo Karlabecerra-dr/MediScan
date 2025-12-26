@@ -12,6 +12,7 @@ import '../services/notification_service.dart';
 import 'add_medication_screen.dart';
 import 'medication_detail_screen.dart';
 import 'login_screen.dart';
+import 'medications_screen.dart'; // Pantalla del listado total
 
 class HomeScreen extends StatefulWidget {
   static const routeName = '/home';
@@ -39,7 +40,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return '${dateStr}_$time';
   }
 
-  // Marca solo la toma de esa hora como "tomada" (se guarda en medications/{id}.taken.{key} = true)
+  // Marca solo ESTA TOMA como "tomada" en Firestore usando el mapa `taken`
   Future<void> _markAsTaken(Medication med, String time) async {
     if (med.id == null) return;
 
@@ -51,7 +52,7 @@ class _HomeScreenState extends State<HomeScreen> {
         .update({'taken.$key': true});
   }
 
-  // Elimina el medicamento y además cancela todas sus notificaciones programadas
+  // Elimina un medicamento en Firestore y cancela sus notificaciones
   Future<void> _deleteMedication(Medication med) async {
     if (med.id == null) return;
 
@@ -61,7 +62,7 @@ class _HomeScreenState extends State<HomeScreen> {
     await NotificationService().cancelMedicationNotifications(id);
   }
 
-  // Diálogo de confirmación antes de eliminar (se usa con Dismissible)
+  // Confirmar y luego eliminar (para usar con Dismissible)
   Future<bool> _confirmAndDelete(Medication med) async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -87,14 +88,12 @@ class _HomeScreenState extends State<HomeScreen> {
       await _deleteMedication(med);
 
       if (!mounted) return false;
-
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Medicamento eliminado')));
       return true;
     } catch (e) {
       if (!mounted) return false;
-
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Error al eliminar: $e')));
@@ -102,7 +101,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // Abre pantalla para agregar medicamento manualmente
   void _openAddMedication() {
     Navigator.push(
       context,
@@ -110,7 +108,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // Abre pantalla para agregar medicamento pero disparando escaneo al entrar
   void _openScan() {
     Navigator.push(
       context,
@@ -120,7 +117,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // Confirma cierre de sesión y redirige al login
   Future<void> _confirmAndLogout() async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -142,28 +138,54 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (confirm == true) {
       await FirebaseAuth.instance.signOut();
-
       if (!mounted) return;
-
       Navigator.of(context).pushReplacementNamed(LoginScreen.routeName);
     }
   }
 
+  // Drawer del Home: por ahora solo una opción ("Medicamentos")
+  Drawer _buildDrawer(User? user) {
+    final displayName = (user?.displayName?.trim().isNotEmpty ?? false)
+        ? user!.displayName!.trim()
+        : 'Mi cuenta';
+    final email = user?.email ?? '';
+
+    return Drawer(
+      child: ListView(
+        //Bloque: fecha + botones (sin overflow)
+        padding: EdgeInsets.zero,
+        children: [
+          UserAccountsDrawerHeader(
+            accountName: Text(displayName),
+            accountEmail: email.isEmpty ? null : Text(email),
+            currentAccountPicture: const CircleAvatar(
+              child: Icon(Icons.person),
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.medication_outlined),
+            title: const Text('Medicamentos'),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.pushNamed(context, MedicationsScreen.routeName);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Etiquetas para el header (fecha y día seleccionado)
     final dateLabel = DateFormat('EEE, d MMM', 'es').format(_selectedDay);
     final selectedDayLabel = _weekdayLabel(_selectedDay.weekday);
-
-    // Usuario actual (si no existe, se muestra aviso)
     final user = FirebaseAuth.instance.currentUser;
 
     return Scaffold(
-      // AppBar principal de la pantalla Home
+      drawer: _buildDrawer(user),
       appBar: AppBar(
         title: Row(
           children: [
-            // Logo pequeño (con fallback si falla el asset)
             ClipRRect(
               borderRadius: BorderRadius.circular(12),
               child: Image.asset(
@@ -179,7 +201,6 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         actions: [
-          // Botón para pruebas rápidas de notificaciones
           IconButton(
             icon: const Icon(
               Icons.notifications_active_rounded,
@@ -187,21 +208,18 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             tooltip: 'Probar notificaciones',
             onPressed: () async {
-              // Aviso rápido (no bloqueante) para indicar que se ejecutarán pruebas
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
-                  content: Text('🚀 Ejecutando pruebas de notificación...'),
+                  content: Text('Ejecutando pruebas de notificación...'),
                   duration: Duration(seconds: 2),
                 ),
               );
 
-              // Notificación inmediata
               await NotificationService().showImmediateTestNotification(
                 medicationId: 'test1',
                 name: 'Prueba Inmediata',
               );
 
-              // Notificación programada a 10 segundos
               await NotificationService().scheduleTestNotification(
                 medicationId: 'test2',
                 name: 'Prueba 10 seg',
@@ -209,8 +227,6 @@ class _HomeScreenState extends State<HomeScreen> {
               );
             },
           ),
-
-          // Diálogo de cuenta (nombre/correo + reset password)
           IconButton(
             icon: const Icon(Icons.person),
             tooltip: 'Mi cuenta',
@@ -221,8 +237,6 @@ class _HomeScreenState extends State<HomeScreen> {
               );
             },
           ),
-
-          // Cierre de sesión con confirmación
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'Cerrar sesión',
@@ -230,27 +244,26 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-
       body: SafeArea(
         child: Column(
           children: [
             const SizedBox(height: 8),
 
-            // Barra de selección de días (hoy, mañana, etc.)
+            // Franja de días (Lun..Dom)
             DayStrip(
               selectedDay: _selectedDay,
-              onDaySelected: (day) {
-                setState(() => _selectedDay = day);
-              },
+              onDaySelected: (day) => setState(() => _selectedDay = day),
             ),
 
             const SizedBox(height: 12),
 
-            // Header: fecha + botones de agregar/escanear
+            // Fecha + botones
+            // Fecha + botones (fecha a la izquierda, botones a la derecha, sin overflow)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
                 children: [
+                  // Fecha a la izquierda (se achica con ellipsis si falta espacio)
                   Expanded(
                     child: Text(
                       dateLabel,
@@ -262,17 +275,51 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                   ),
-                  const Spacer(),
-                  FilledButton.icon(
-                    onPressed: _openAddMedication,
-                    icon: const Icon(Icons.add),
-                    label: const Text('Agregar'),
-                  ),
-                  const SizedBox(width: 8),
-                  OutlinedButton.icon(
-                    onPressed: _openScan,
-                    icon: const Icon(Icons.qr_code_scanner_rounded),
-                    label: const Text('Escanear'),
+
+                  const SizedBox(width: 10),
+
+                  // Botones a la derecha (compactos). Si falta espacio, bajan sin romper.
+                  Wrap(
+                    spacing: 10,
+                    children: [
+                      FilledButton.icon(
+                        onPressed: _openAddMedication,
+                        icon: const Icon(Icons.add, size: 18),
+                        label: const Text(
+                          'Agregar',
+                          style: TextStyle(fontSize: 13),
+                        ),
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
+                          minimumSize: const Size(0, 36),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: _openScan,
+                        icon: const Icon(
+                          Icons.qr_code_scanner_rounded,
+                          size: 18,
+                        ),
+                        label: const Text(
+                          'Escanear',
+                          style: TextStyle(fontSize: 13),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
+                          minimumSize: const Size(0, 36),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -280,7 +327,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
             const SizedBox(height: 4),
 
-            // Si no hay usuario autenticado, se muestra un mensaje simple
+            // Si no hay usuario autenticado, mensaje (evita crasheos)
             if (user == null)
               const Expanded(
                 child: Center(
@@ -292,29 +339,25 @@ class _HomeScreenState extends State<HomeScreen> {
               )
             else
               Expanded(
-                // StreamBuilder que escucha los medicamentos del usuario
                 child: StreamBuilder<QuerySnapshot>(
                   stream: FirebaseFirestore.instance
                       .collection('medications')
                       .where('userId', isEqualTo: user.uid)
                       .snapshots(),
                   builder: (context, snapshot) {
-                    // Estado de carga
                     if (snapshot.connectionState == ConnectionState.waiting) {
                       return const Center(child: CircularProgressIndicator());
                     }
 
-                    // Estado de error
                     if (snapshot.hasError) {
                       return Center(
                         child: Text('Error al cargar: ${snapshot.error}'),
                       );
                     }
 
-                    // Documentos recibidos
                     final docs = snapshot.data?.docs ?? [];
 
-                    // Parseo de Firestore -> Medication
+                    // Parse: documentos -> modelo Medication
                     final meds = docs
                         .map(
                           (d) => Medication.fromMap(
@@ -324,7 +367,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         )
                         .toList();
 
-                    // Compatibilidad con etiquetas antiguas (L, M, X...) y nuevas (Lun, Mar, Mié...)
+                    // Compatibilidad días: etiquetas nuevas y antiguas
                     const legacyMap = {
                       'Lun': 'L',
                       'Mar': 'M',
@@ -338,18 +381,17 @@ class _HomeScreenState extends State<HomeScreen> {
                     final legacyLabel =
                         legacyMap[selectedDayLabel] ?? selectedDayLabel;
 
-                    // Lista final de tomas del día (medicamento + hora)
+                    // Construimos “tomas del día” (un medicamento puede tener varias horas)
                     final dosesToday = <_DoseItem>[];
 
-                    // Arma las tomas del día filtrando por día seleccionado
                     for (final med in meds) {
-                      // Si el medicamento no aplica al día actual, se omite
+                      // Filtra por día de la semana
                       if (!med.days.contains(selectedDayLabel) &&
                           !med.days.contains(legacyLabel)) {
                         continue;
                       }
 
-                      // Para cada hora del medicamento, se crea una "toma" independiente
+                      // Por cada hora agregamos un item
                       for (final t in med.times) {
                         final key = _takenKeyFor(_selectedDay, t);
                         final isTaken = med.taken[key] == true;
@@ -360,10 +402,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       }
                     }
 
-                    // Ordena por hora (string "HH:mm" funciona bien lexicográficamente)
                     dosesToday.sort((a, b) => a.time.compareTo(b.time));
 
-                    // Conteo simple de pendientes para el subtitle del header
                     final pendingCount = dosesToday
                         .where((d) => !d.isTaken)
                         .length;
@@ -373,7 +413,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     return Column(
                       children: [
-                        // Subtitle superior (pendientes del día)
+                        // Subtítulo
                         Padding(
                           padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                           child: Align(
@@ -388,7 +428,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         ),
 
-                        // Lista de tomas (vacía o con cards)
+                        // Lista de cards
                         Expanded(
                           child: dosesToday.isEmpty
                               ? const Center(
@@ -398,11 +438,17 @@ class _HomeScreenState extends State<HomeScreen> {
                                   ),
                                 )
                               : ListView.builder(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    16,
+                                    0,
+                                    16,
+                                    16,
+                                  ),
                                   itemCount: dosesToday.length,
                                   itemBuilder: (context, index) {
                                     final item = dosesToday[index];
 
-                                    // Dismissible para eliminar (swipe a la izquierda)
+                                    // Dismissible para eliminar
                                     return Dismissible(
                                       key: Key(
                                         item.medication.id ??
@@ -420,18 +466,12 @@ class _HomeScreenState extends State<HomeScreen> {
                                           color: Colors.white,
                                         ),
                                       ),
-
-                                      // Confirma antes de eliminar
                                       confirmDismiss: (_) =>
                                           _confirmAndDelete(item.medication),
 
-                                      // Card principal de la toma
-                                      child: MedicationCard(
-                                        medication: item.medication,
-                                        time: item.time,
-                                        isTaken: item.isTaken,
-
-                                        // Abre detalle del medicamento
+                                      // ✅ AQUÍ iba el child (si no, se rompe todo)
+                                      child: InkWell(
+                                        borderRadius: BorderRadius.circular(18),
                                         onTap: () {
                                           Navigator.push(
                                             context,
@@ -443,38 +483,49 @@ class _HomeScreenState extends State<HomeScreen> {
                                             ),
                                           );
                                         },
+                                        child: MedicationCard(
+                                          timeLabel: item.time,
+                                          medicationName: item.medication.name,
 
-                                        // Marca como tomada la hora específica
-                                        onTaken: () async {
-                                          await _markAsTaken(
-                                            item.medication,
-                                            item.time,
-                                          );
-                                        },
+                                          // ✅ Campos reales del modelo (según tu detail screen):
+                                          dosageLabel:
+                                              '${item.medication.dose} · ${item.medication.presentation}',
 
-                                        // Posponer: agenda recordatorio extra en 5 minutos
-                                        onPostpone: () async {
-                                          await NotificationService()
-                                              .schedulePostponedNotification(
-                                                medicationId:
-                                                    item.medication.id ??
-                                                    item.medication.name,
-                                                name: item.medication.name,
-                                                minutes: 5,
-                                              );
+                                          statusLabel: item.isTaken
+                                              ? 'Tomado'
+                                              : 'Pendiente',
 
-                                          if (!mounted) return;
+                                          onTake: () async {
+                                            await _markAsTaken(
+                                              item.medication,
+                                              item.time,
+                                            );
+                                          },
+                                          onSnooze: () async {
+                                            // Captura antes del await para evitar el lint
+                                            final messenger =
+                                                ScaffoldMessenger.of(context);
 
-                                          ScaffoldMessenger.of(
-                                            context,
-                                          ).showSnackBar(
-                                            const SnackBar(
-                                              content: Text(
-                                                'Recordatorio pospuesto 5 minutos',
+                                            await NotificationService()
+                                                .schedulePostponedNotification(
+                                                  medicationId:
+                                                      item.medication.id ??
+                                                      item.medication.name,
+                                                  name: item.medication.name,
+                                                  minutes: 5,
+                                                );
+
+                                            if (!mounted) return;
+
+                                            messenger.showSnackBar(
+                                              const SnackBar(
+                                                content: Text(
+                                                  'Recordatorio pospuesto 5 minutos',
+                                                ),
                                               ),
-                                            ),
-                                          );
-                                        },
+                                            );
+                                          },
+                                        ),
                                       ),
                                     );
                                   },
@@ -492,8 +543,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// Estructura interna para trabajar "tomas del día":
-// Un medicamento puede tener varias horas, por eso se separa en items por hora.
+// Estructura interna para “tomas del día”:
+// un medicamento puede tener varias horas, por eso se separa en items por hora.
 class _DoseItem {
   final Medication medication;
   final String time;

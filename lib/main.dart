@@ -10,6 +10,7 @@ import 'screens/add_medication_screen.dart';
 import 'screens/scan_screen.dart';
 import 'screens/medication_detail_screen.dart';
 import 'screens/login_screen.dart';
+import 'screens/medications_screen.dart';
 
 // Servicio encargado de inicializar y manejar las notificaciones locales
 import 'services/notification_service.dart';
@@ -76,6 +77,7 @@ class MediScanApp extends StatelessWidget {
         AddMedicationScreen.routeName: (_) => const AddMedicationScreen(),
         ScanScreen.routeName: (_) => const ScanScreen(),
         LoginScreen.routeName: (_) => const LoginScreen(),
+        MedicationsScreen.routeName: (_) => const MedicationsScreen(),
       },
 
       // Ruta con argumentos (detalle de medicamento)

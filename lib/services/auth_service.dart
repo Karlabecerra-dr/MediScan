@@ -38,7 +38,7 @@ class AuthService {
       return credential;
     } on FirebaseAuthException catch (e) {
       debugPrint('Auth error (signIn): ${e.code} - ${e.message}');
-      throw e;
+      rethrow;
     } catch (e) {
       debugPrint('Unknown auth error (signIn): $e');
       rethrow;
@@ -94,7 +94,7 @@ class AuthService {
       return userCredential;
     } on FirebaseAuthException catch (e) {
       debugPrint('Auth error (Google): ${e.code} - ${e.message}');
-      throw e;
+      rethrow;
     } catch (e) {
       debugPrint('Unknown auth error (Google): $e');
       rethrow;
@@ -135,7 +135,7 @@ class AuthService {
       return credential;
     } on FirebaseAuthException catch (e) {
       debugPrint('Auth error (signUp): ${e.code} - ${e.message}');
-      throw e;
+      rethrow;
     } catch (e) {
       debugPrint('Unknown auth error (signUp): $e');
       rethrow;

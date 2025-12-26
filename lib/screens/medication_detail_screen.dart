@@ -23,6 +23,7 @@ class _MedicationDetailScreenState extends State<MedicationDetailScreen> {
     BuildContext context,
     Medication medication,
   ) async {
+    // 1) Confirmación (usa ctx para cerrar SOLO el diálogo)
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -45,28 +46,41 @@ class _MedicationDetailScreenState extends State<MedicationDetailScreen> {
       ),
     );
 
-    // Si el usuario cancela o la pantalla ya no está montada, corto aquí
-    if (confirmed != true || !context.mounted) return;
+    if (confirmed != true) return;
+    if (!mounted) return;
+
+    // 2) Capturamos "dependencias" ANTES de los await (para evitar el lint)
+    // ignore: use_build_context_synchronously
+    final messenger = ScaffoldMessenger.of(context);
+    // ignore: use_build_context_synchronously
+    final navigator = Navigator.of(context);
 
     try {
       // Solo se puede borrar si existe un id real en Firestore
-      if (medication.id != null) {
-        // Primero cancelo notificaciones para no dejar recordatorios huérfanos
-        await NotificationService().cancelMedicationNotifications(
-          medication.id!,
+      final id = medication.id;
+      if (id == null) {
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('No se puede eliminar: medicamento sin ID'),
+            backgroundColor: Colors.red,
+          ),
         );
-
-        // Luego elimino el documento
-        await FirebaseFirestore.instance
-            .collection('medications')
-            .doc(medication.id)
-            .delete();
+        return;
       }
 
-      if (!context.mounted) return;
+      // Primero cancelo notificaciones (no deja recordatorios huérfanos)
+      await NotificationService().cancelMedicationNotifications(id);
+
+      // Luego elimino el documento
+      await FirebaseFirestore.instance
+          .collection('medications')
+          .doc(id)
+          .delete();
+
+      if (!mounted) return;
 
       // Feedback de éxito
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         SnackBar(
           content: Text('${medication.name} eliminado correctamente'),
           backgroundColor: Colors.green,
@@ -74,16 +88,13 @@ class _MedicationDetailScreenState extends State<MedicationDetailScreen> {
         ),
       );
 
-      // Vuelve a la pantalla anterior
-      Navigator.pop(context);
+      // Volver a la pantalla anterior (cerrar MedicationDetailScreen)
+      navigator.pop(true);
     } catch (e) {
-      // Log para debug
       debugPrint('Error al eliminar medicamento: $e');
+      if (!mounted) return;
 
-      if (!context.mounted) return;
-
-      // Feedback de error
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         SnackBar(
           content: Text('Error al eliminar: $e'),
           backgroundColor: Colors.red,
@@ -95,16 +106,20 @@ class _MedicationDetailScreenState extends State<MedicationDetailScreen> {
 
   // Abre la pantalla de edición reutilizando AddMedicationScreen.
   // Al volver, no se fuerza recarga acá porque la lista principal se refresca en Home.
-  void _editMedication(BuildContext context, Medication medication) {
-    Navigator.push(
+  Future<void> _editMedication(
+    BuildContext context,
+    Medication medication,
+  ) async {
+    final updated = await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => AddMedicationScreen(medication: medication),
       ),
-    ).then((_) {
-      // No recargo aquí: esta pantalla muestra una versión "local"
-      // y al volver al Home se ven los cambios.
-    });
+    );
+
+    if (updated == true && mounted) {
+      setState(() {});
+    }
   }
 
   @override
@@ -345,7 +360,7 @@ class _MedicationDetailScreenState extends State<MedicationDetailScreen> {
                           ],
                         ),
                       );
-                    }).toList(),
+                    }),
                   ],
                 ),
               ),

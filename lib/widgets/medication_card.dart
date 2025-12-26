@@ -1,180 +1,174 @@
 import 'package:flutter/material.dart';
-import '../models/medication.dart';
 
-// Card que representa UNA toma (medicamento + hora específica).
-// El estado "tomado" se maneja por toma (isTaken), no por medicamento completo.
 class MedicationCard extends StatelessWidget {
-  // Datos del medicamento
-  final Medication medication;
+  // Datos visibles del ítem
+  final String timeLabel;
+  final String medicationName;
+  final String dosageLabel; // ej: "100 mg · Tableta"
+  final String statusLabel; // ej: "Pendiente" / "Tomado"
 
-  // Hora de la toma en formato "HH:mm"
-  final String time;
-
-  // Estado de esta toma específica (true = tomada)
-  final bool isTaken;
-
-  // Acciones del card
-  final VoidCallback onTap; // abre detalle
-  final VoidCallback onTaken; // marca como tomada
-  final VoidCallback onPostpone; // pospone recordatorio
+  // Acciones
+  final VoidCallback onTake;
+  final VoidCallback onSnooze;
 
   const MedicationCard({
     super.key,
-    required this.medication,
-    required this.time,
-    required this.isTaken,
-    required this.onTap,
-    required this.onTaken,
-    required this.onPostpone,
+    required this.timeLabel,
+    required this.medicationName,
+    required this.dosageLabel,
+    required this.statusLabel,
+    required this.onTake,
+    required this.onSnooze,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    // Estado visual (texto + colores) según si esta toma ya fue marcada
-    final String statusLabel = isTaken ? 'Tomado' : 'Pendiente';
-    final Color statusBg = isTaken
+    final isPending = statusLabel.toLowerCase().contains('pend');
+    final isTaken = statusLabel.toLowerCase().contains('tom');
+
+    final chipBg = isTaken
         ? Colors.green.shade100
-        : Colors.orange.shade100;
-    final Color statusFg = isTaken
+        : (isPending
+              ? Colors.orange.shade100
+              : theme.colorScheme.secondaryContainer);
+
+    final chipFg = isTaken
         ? Colors.green.shade800
-        : Colors.orange.shade800;
+        : (isPending
+              ? Colors.orange.shade800
+              : theme.colorScheme.onSecondaryContainer);
 
-    return Card(
-      elevation: 0,
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: InkWell(
-        // Permite efecto ripple manteniendo bordes redondeados
-        borderRadius: BorderRadius.circular(16),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // -------------------------
-              // Fila principal
-              // -------------------------
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Punto de color (marca visual rápida)
-                  Container(
-                    width: 14,
-                    height: 14,
-                    margin: const EdgeInsets.only(top: 4, right: 12),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.primary,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-
-                  // Bloque de texto: hora + nombre + detalle (dosis/presentación)
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Hora · Nombre (nombre con 2 líneas + ellipsis)
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              time,
-                              style: const TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            const Text('·'),
-                            const SizedBox(width: 4),
-                            Expanded(
-                              child: Text(
-                                medication.name,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-
-                        // Dosis + presentación
-                        Text(
-                          '${medication.dose} · ${medication.presentation}',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: Colors.grey.shade700,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(width: 8),
-
-                  // Columna derecha: chip de estado + botón principal
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      // Chip "Pendiente / Tomado"
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: statusBg,
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Text(
-                          statusLabel,
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: statusFg,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-
-                      // Botón de acción (se deshabilita si ya fue tomado)
-                      SizedBox(
-                        width: 110,
-                        child: FilledButton(
-                          onPressed: isTaken ? null : onTaken,
-                          child: Text(
-                            isTaken ? 'Tomado' : 'Tomar',
-                            style: const TextStyle(fontSize: 14),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 8),
-
-              // -------------------------
-              // Acción secundaria: posponer
-              // -------------------------
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton(
-                  onPressed: onPostpone,
-                  child: const Text('Posponer'),
-                ),
-              ),
-            ],
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+            color: Colors.black.withValues(alpha: 0.04),
           ),
-        ),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Icono "píldora"
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary.withAlpha((0.12 * 255).round()),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(
+              Icons.medication_liquid, // se ve más “medicamento” que un punto
+              color: theme.colorScheme.primary,
+            ),
+          ),
+          const SizedBox(width: 12),
+
+          // Contenido
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Hora + estado
+                Row(
+                  children: [
+                    Text(
+                      timeLabel,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const Spacer(),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: chipBg,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        statusLabel,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: chipFg,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+
+                // Nombre medicamento
+                Text(
+                  medicationName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+
+                // Dosis/presentación
+                Text(
+                  dosageLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+                ),
+
+                const SizedBox(height: 14),
+
+                // Botones: misma “altura visual”
+                Row(
+                  children: [
+                    OutlinedButton(
+                      onPressed: onSnooze,
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(0, 40),
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        visualDensity: VisualDensity.compact,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text('Posponer'),
+                    ),
+                    const Spacer(),
+                    FilledButton(
+                      onPressed: onTake,
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size(120, 40),
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        visualDensity: VisualDensity.compact,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text('Tomar'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

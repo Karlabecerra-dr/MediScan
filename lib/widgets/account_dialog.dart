@@ -8,32 +8,32 @@ class AccountDialog extends StatelessWidget {
 
   // Envía un correo para restablecer la contraseña del usuario actual
   Future<void> _sendPasswordReset(BuildContext context) async {
-    final user = FirebaseAuth.instance.currentUser;
-    final email = user?.email;
+    final email = FirebaseAuth.instance.currentUser?.email;
 
-    // Validación básica: el usuario debe tener un correo asociado
     if (email == null || email.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No se encontró el correo del usuario.')),
+        const SnackBar(content: Text('No hay correo asociado a esta cuenta.')),
       );
       return;
     }
 
+    // ✅ Captura antes del await (esto elimina warning)
+    final messenger = ScaffoldMessenger.of(context);
+
     try {
-      // Envía el correo de recuperación usando FirebaseAuth
       await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
 
-      // Mensaje de confirmación para el usuario
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         const SnackBar(
           content: Text('Te enviamos un correo para cambiar tu contraseña.'),
         ),
       );
     } on FirebaseAuthException catch (e) {
-      // Manejo de errores específicos de FirebaseAuth
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Error: ${e.message ?? e.code}')));
+      messenger.showSnackBar(
+        SnackBar(content: Text('Error: ${e.message ?? e.code}')),
+      );
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('Error inesperado: $e')));
     }
   }
 

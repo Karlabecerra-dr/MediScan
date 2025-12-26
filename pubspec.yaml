@@ -28,26 +28,28 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^5.0.0
   flutter_launcher_icons: ^0.13.1
-  flutter_native_splash: ^2.4.0
-
+  flutter_native_splash: ^2.4.1
+  
 flutter:
   uses-material-design: true
-
   assets:
     - assets/logo.png
+    - assets/splash_logo.png
 
 flutter_launcher_icons:
   android: true
-  ios: false        #en false porque no compila para iOS
+  ios: false
   image_path: "assets/logo.png"
   min_sdk_android: 21
 
 flutter_native_splash:
   color: "#FFFFFF"
-  image: assets/logo.png
+  image: assets/splash_logo.png
   android: true
-  ios: false        #también porque solo usa Android
+  ios: false
+
   android_12:
     color: "#FFFFFF"
-    image: assets/logo.png
+    image: assets/splash_logo.png
+
 
