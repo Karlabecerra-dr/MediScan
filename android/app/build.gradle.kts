@@ -13,7 +13,7 @@ android {
 
     // Requisito de flutter_local_notifications: compileSdk 36
     compileSdk = 36
-    ndkVersion = flutter.ndkVersion
+    ndkVersion = "28.2.13676358"
 
     defaultConfig {
         applicationId = "com.example.mediscan"

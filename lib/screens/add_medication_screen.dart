@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../models/medication.dart';
+import '../services/active_profile.dart';
 import '../services/notification_service.dart';
 import 'scan_screen.dart';
 
@@ -298,6 +299,25 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
       return;
     }
 
+    // Perfil activo (persona)
+    final activeProfileId = ActiveProfile.activeProfileId.value;
+    if (activeProfileId == null) {
+      // Si por alguna razón aún no está inicializado, asegurar
+      await ActiveProfile.initAndEnsure();
+    }
+    final profileId = ActiveProfile.activeProfileId.value;
+    if (profileId == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'No se pudo cargar el perfil activo. Intenta de nuevo.',
+          ),
+        ),
+      );
+      return;
+    }
+
     // Al menos un día seleccionado
     if (_selectedDays.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -338,6 +358,9 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
         final updated = Medication(
           id: original.id,
           userId: original.userId ?? user.uid, // seguridad: siempre tener dueño
+          profileId:
+              original.profileId ??
+              profileId, // NUEVO: mantener o actualizar profileId
           medId: medId,
           name: name,
           dose: dose,
@@ -374,6 +397,7 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
         // -------- CREAR --------
         final newMed = Medication(
           userId: user.uid, // dueño del medicamento
+          profileId: profileId, // NUEVO: amarrar al perfil activo
           medId: medId,
           name: name,
           dose: dose,
@@ -392,6 +416,7 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
         final created = Medication(
           id: docRef.id,
           userId: newMed.userId,
+          profileId: newMed.profileId,
           medId: newMed.medId,
           name: newMed.name,
           dose: newMed.dose,

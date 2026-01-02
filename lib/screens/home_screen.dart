@@ -4,15 +4,19 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../models/medication.dart';
+import '../models/profile.dart';
+import '../services/active_profile.dart';
+import '../services/profile_service.dart';
+import '../services/notification_service.dart';
 import '../widgets/account_dialog.dart';
 import '../widgets/day_strip.dart';
 import '../widgets/medication_card.dart';
-import '../services/notification_service.dart';
 
 import 'add_medication_screen.dart';
-import 'medication_detail_screen.dart';
 import 'login_screen.dart';
-import 'medications_screen.dart'; // Pantalla del listado total
+import 'medication_detail_screen.dart';
+import 'medications_screen.dart';
+import 'profiles_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   static const routeName = '/home';
@@ -26,6 +30,13 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   // Día seleccionado en el DayStrip (por defecto hoy)
   DateTime _selectedDay = DateTime.now();
+
+  final _profileService = ProfileService();
+
+  @override
+  void initState() {
+    super.initState();
+  }
 
   // Convierte weekday (1–7) a etiqueta corta usada en la app ("Lun", "Mar", ...)
   String _weekdayLabel(int weekday) {
@@ -102,6 +113,14 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _openAddMedication() {
+    final activeId = ActiveProfile.activeProfileId.value;
+    if (activeId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cargando perfil activo...')),
+      );
+      return;
+    }
+
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const AddMedicationScreen()),
@@ -109,6 +128,13 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _openScan() {
+    if (ActiveProfile.activeProfileId.value == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cargando perfil activo...')),
+      );
+      return;
+    }
+
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -143,7 +169,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // Drawer del Home: por ahora solo una opción ("Medicamentos")
   Drawer _buildDrawer(User? user) {
     final displayName = (user?.displayName?.trim().isNotEmpty ?? false)
         ? user!.displayName!.trim()
@@ -152,7 +177,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Drawer(
       child: ListView(
-        //Bloque: fecha + botones (sin overflow)
         padding: EdgeInsets.zero,
         children: [
           UserAccountsDrawerHeader(
@@ -161,6 +185,14 @@ class _HomeScreenState extends State<HomeScreen> {
             currentAccountPicture: const CircleAvatar(
               child: Icon(Icons.person),
             ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.switch_account_outlined),
+            title: const Text('Perfiles'),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.pushNamed(context, ProfilesScreen.routeName);
+            },
           ),
           ListTile(
             leading: const Icon(Icons.medication_outlined),
@@ -172,6 +204,48 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _profileHeader(String activeId) {
+    return StreamBuilder<Profile?>(
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .doc(FirebaseAuth.instance.currentUser!.uid)
+          .collection('profiles')
+          .doc(activeId)
+          .snapshots()
+          .map((d) => d.exists ? Profile.fromMap(d.data()!, id: d.id) : null),
+      builder: (context, snap) {
+        final profileName = snap.data?.name ?? 'Perfil';
+
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+          child: Row(
+            children: [
+              const Icon(Icons.person_pin_circle_outlined, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Perfil: $profileName',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.grey.shade800,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: () =>
+                    Navigator.pushNamed(context, ProfilesScreen.routeName),
+                child: const Text('Cambiar'),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -208,7 +282,9 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             tooltip: 'Probar notificaciones',
             onPressed: () async {
-              ScaffoldMessenger.of(context).showSnackBar(
+              final messenger = ScaffoldMessenger.of(context);
+
+              messenger.showSnackBar(
                 const SnackBar(
                   content: Text('Ejecutando pruebas de notificación...'),
                   duration: Duration(seconds: 2),
@@ -255,15 +331,28 @@ class _HomeScreenState extends State<HomeScreen> {
               onDaySelected: (day) => setState(() => _selectedDay = day),
             ),
 
-            const SizedBox(height: 12),
+            // Perfil activo (con Cambiar)
+            ValueListenableBuilder<String?>(
+              valueListenable: ActiveProfile.activeProfileId,
+              builder: (context, activeId, _) {
+                if (user == null) return const SizedBox.shrink();
+                if (activeId == null) {
+                  return const Padding(
+                    padding: EdgeInsets.fromLTRB(16, 10, 16, 6),
+                    child: LinearProgressIndicator(minHeight: 2),
+                  );
+                }
+                return _profileHeader(activeId);
+              },
+            ),
 
-            // Fecha + botones
-            // Fecha + botones (fecha a la izquierda, botones a la derecha, sin overflow)
+            const SizedBox(height: 4),
+
+            // Fecha + botones (fecha izquierda, botones derecha, sin overflow)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
                 children: [
-                  // Fecha a la izquierda (se achica con ellipsis si falta espacio)
                   Expanded(
                     child: Text(
                       dateLabel,
@@ -275,10 +364,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                   ),
-
                   const SizedBox(width: 10),
-
-                  // Botones a la derecha (compactos). Si falta espacio, bajan sin romper.
                   Wrap(
                     spacing: 10,
                     children: [
@@ -327,7 +413,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
             const SizedBox(height: 4),
 
-            // Si no hay usuario autenticado, mensaje (evita crasheos)
             if (user == null)
               const Expanded(
                 child: Center(
@@ -338,200 +423,212 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               )
             else
+              // 🔥 Lista filtrada por perfil activo
               Expanded(
-                child: StreamBuilder<QuerySnapshot>(
-                  stream: FirebaseFirestore.instance
-                      .collection('medications')
-                      .where('userId', isEqualTo: user.uid)
-                      .snapshots(),
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
+                child: ValueListenableBuilder<String?>(
+                  valueListenable: ActiveProfile.activeProfileId,
+                  builder: (context, activeProfileId, _) {
+                    if (activeProfileId == null) {
                       return const Center(child: CircularProgressIndicator());
                     }
 
-                    if (snapshot.hasError) {
-                      return Center(
-                        child: Text('Error al cargar: ${snapshot.error}'),
-                      );
-                    }
+                    return StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('medications')
+                          .where('userId', isEqualTo: user.uid)
+                          .where('profileId', isEqualTo: activeProfileId)
+                          .snapshots(),
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState ==
+                            ConnectionState.waiting) {
+                          return const Center(
+                            child: CircularProgressIndicator(),
+                          );
+                        }
 
-                    final docs = snapshot.data?.docs ?? [];
+                        if (snapshot.hasError) {
+                          return Center(
+                            child: Text('Error al cargar: ${snapshot.error}'),
+                          );
+                        }
 
-                    // Parse: documentos -> modelo Medication
-                    final meds = docs
-                        .map(
-                          (d) => Medication.fromMap(
-                            d.data() as Map<String, dynamic>,
-                            id: d.id,
-                          ),
-                        )
-                        .toList();
+                        final docs = snapshot.data?.docs ?? [];
+                        final meds = docs
+                            .map(
+                              (d) => Medication.fromMap(
+                                d.data() as Map<String, dynamic>,
+                                id: d.id,
+                              ),
+                            )
+                            .toList();
 
-                    // Compatibilidad días: etiquetas nuevas y antiguas
-                    const legacyMap = {
-                      'Lun': 'L',
-                      'Mar': 'M',
-                      'Mié': 'X',
-                      'Jue': 'J',
-                      'Vie': 'V',
-                      'Sab': 'S',
-                      'Sáb': 'S',
-                      'Dom': 'D',
-                    };
-                    final legacyLabel =
-                        legacyMap[selectedDayLabel] ?? selectedDayLabel;
+                        // Compatibilidad días: etiquetas nuevas y antiguas
+                        const legacyMap = {
+                          'Lun': 'L',
+                          'Mar': 'M',
+                          'Mié': 'X',
+                          'Jue': 'J',
+                          'Vie': 'V',
+                          'Sab': 'S',
+                          'Sáb': 'S',
+                          'Dom': 'D',
+                        };
+                        final legacyLabel =
+                            legacyMap[selectedDayLabel] ?? selectedDayLabel;
 
-                    // Construimos “tomas del día” (un medicamento puede tener varias horas)
-                    final dosesToday = <_DoseItem>[];
+                        final dosesToday = <_DoseItem>[];
 
-                    for (final med in meds) {
-                      // Filtra por día de la semana
-                      if (!med.days.contains(selectedDayLabel) &&
-                          !med.days.contains(legacyLabel)) {
-                        continue;
-                      }
+                        for (final med in meds) {
+                          if (!med.days.contains(selectedDayLabel) &&
+                              !med.days.contains(legacyLabel)) {
+                            continue;
+                          }
 
-                      // Por cada hora agregamos un item
-                      for (final t in med.times) {
-                        final key = _takenKeyFor(_selectedDay, t);
-                        final isTaken = med.taken[key] == true;
+                          for (final t in med.times) {
+                            final key = _takenKeyFor(_selectedDay, t);
+                            final isTaken = med.taken[key] == true;
 
-                        dosesToday.add(
-                          _DoseItem(medication: med, time: t, isTaken: isTaken),
-                        );
-                      }
-                    }
+                            dosesToday.add(
+                              _DoseItem(
+                                medication: med,
+                                time: t,
+                                isTaken: isTaken,
+                              ),
+                            );
+                          }
+                        }
 
-                    dosesToday.sort((a, b) => a.time.compareTo(b.time));
+                        dosesToday.sort((a, b) => a.time.compareTo(b.time));
 
-                    final pendingCount = dosesToday
-                        .where((d) => !d.isTaken)
-                        .length;
+                        final pendingCount = dosesToday
+                            .where((d) => !d.isTaken)
+                            .length;
 
-                    final headerSubtitle =
-                        'Hoy · $pendingCount tomas pendientes';
+                        final headerSubtitle =
+                            'Hoy · $pendingCount tomas pendientes';
 
-                    return Column(
-                      children: [
-                        // Subtítulo
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                          child: Align(
-                            alignment: Alignment.centerLeft,
-                            child: Text(
-                              headerSubtitle,
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Colors.grey.shade700,
+                        return Column(
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  headerSubtitle,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Colors.grey.shade700,
+                                  ),
+                                ),
                               ),
                             ),
-                          ),
-                        ),
-
-                        // Lista de cards
-                        Expanded(
-                          child: dosesToday.isEmpty
-                              ? const Center(
-                                  child: Text(
-                                    'No hay tomas para este día.\nPulsa "Agregar" para registrar un medicamento.',
-                                    textAlign: TextAlign.center,
-                                  ),
-                                )
-                              : ListView.builder(
-                                  padding: const EdgeInsets.fromLTRB(
-                                    16,
-                                    0,
-                                    16,
-                                    16,
-                                  ),
-                                  itemCount: dosesToday.length,
-                                  itemBuilder: (context, index) {
-                                    final item = dosesToday[index];
-
-                                    // Dismissible para eliminar
-                                    return Dismissible(
-                                      key: Key(
-                                        item.medication.id ??
-                                            '${item.medication.name}-$index',
+                            Expanded(
+                              child: dosesToday.isEmpty
+                                  ? const Center(
+                                      child: Text(
+                                        'No hay tomas para este día.\nPulsa "Agregar" para registrar un medicamento.',
+                                        textAlign: TextAlign.center,
                                       ),
-                                      direction: DismissDirection.endToStart,
-                                      background: Container(
-                                        alignment: Alignment.centerRight,
-                                        padding: const EdgeInsets.only(
-                                          right: 16,
-                                        ),
-                                        color: Colors.redAccent,
-                                        child: const Icon(
-                                          Icons.delete,
-                                          color: Colors.white,
-                                        ),
+                                    )
+                                  : ListView.builder(
+                                      padding: const EdgeInsets.fromLTRB(
+                                        16,
+                                        0,
+                                        16,
+                                        16,
                                       ),
-                                      confirmDismiss: (_) =>
-                                          _confirmAndDelete(item.medication),
+                                      itemCount: dosesToday.length,
+                                      itemBuilder: (context, index) {
+                                        final item = dosesToday[index];
 
-                                      // ✅ AQUÍ iba el child (si no, se rompe todo)
-                                      child: InkWell(
-                                        borderRadius: BorderRadius.circular(18),
-                                        onTap: () {
-                                          Navigator.push(
-                                            context,
-                                            MaterialPageRoute(
-                                              builder: (_) =>
-                                                  MedicationDetailScreen(
-                                                    medication: item.medication,
-                                                  ),
+                                        return Dismissible(
+                                          key: Key(
+                                            item.medication.id ??
+                                                '${item.medication.name}-$index',
+                                          ),
+                                          direction:
+                                              DismissDirection.endToStart,
+                                          background: Container(
+                                            alignment: Alignment.centerRight,
+                                            padding: const EdgeInsets.only(
+                                              right: 16,
                                             ),
-                                          );
-                                        },
-                                        child: MedicationCard(
-                                          timeLabel: item.time,
-                                          medicationName: item.medication.name,
-
-                                          // ✅ Campos reales del modelo (según tu detail screen):
-                                          dosageLabel:
-                                              '${item.medication.dose} · ${item.medication.presentation}',
-
-                                          statusLabel: item.isTaken
-                                              ? 'Tomado'
-                                              : 'Pendiente',
-
-                                          onTake: () async {
-                                            await _markAsTaken(
-                                              item.medication,
-                                              item.time,
-                                            );
-                                          },
-                                          onSnooze: () async {
-                                            // Captura antes del await para evitar el lint
-                                            final messenger =
-                                                ScaffoldMessenger.of(context);
-
-                                            await NotificationService()
-                                                .schedulePostponedNotification(
-                                                  medicationId:
-                                                      item.medication.id ??
-                                                      item.medication.name,
-                                                  name: item.medication.name,
-                                                  minutes: 5,
-                                                );
-
-                                            if (!mounted) return;
-
-                                            messenger.showSnackBar(
-                                              const SnackBar(
-                                                content: Text(
-                                                  'Recordatorio pospuesto 5 minutos',
-                                                ),
+                                            color: Colors.redAccent,
+                                            child: const Icon(
+                                              Icons.delete,
+                                              color: Colors.white,
+                                            ),
+                                          ),
+                                          confirmDismiss: (_) =>
+                                              _confirmAndDelete(
+                                                item.medication,
                                               ),
-                                            );
-                                          },
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                ),
-                        ),
-                      ],
+                                          child: InkWell(
+                                            borderRadius: BorderRadius.circular(
+                                              18,
+                                            ),
+                                            onTap: () {
+                                              Navigator.push(
+                                                context,
+                                                MaterialPageRoute(
+                                                  builder: (_) =>
+                                                      MedicationDetailScreen(
+                                                        medication:
+                                                            item.medication,
+                                                      ),
+                                                ),
+                                              );
+                                            },
+                                            child: MedicationCard(
+                                              timeLabel: item.time,
+                                              medicationName:
+                                                  item.medication.name,
+                                              dosageLabel:
+                                                  '${item.medication.dose} · ${item.medication.presentation}',
+                                              statusLabel: item.isTaken
+                                                  ? 'Tomado'
+                                                  : 'Pendiente',
+                                              onTake: () async {
+                                                await _markAsTaken(
+                                                  item.medication,
+                                                  item.time,
+                                                );
+                                              },
+                                              onSnooze: () async {
+                                                final messenger =
+                                                    ScaffoldMessenger.of(
+                                                      context,
+                                                    );
+
+                                                await NotificationService()
+                                                    .schedulePostponedNotification(
+                                                      medicationId:
+                                                          item.medication.id ??
+                                                          item.medication.name,
+                                                      name:
+                                                          item.medication.name,
+                                                      minutes: 5,
+                                                    );
+
+                                                if (!mounted) return;
+
+                                                messenger.showSnackBar(
+                                                  const SnackBar(
+                                                    content: Text(
+                                                      'Recordatorio pospuesto 5 minutos',
+                                                    ),
+                                                  ),
+                                                );
+                                              },
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                            ),
+                          ],
+                        );
+                      },
                     );
                   },
                 ),
@@ -543,8 +640,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// Estructura interna para “tomas del día”:
-// un medicamento puede tener varias horas, por eso se separa en items por hora.
 class _DoseItem {
   final Medication medication;
   final String time;

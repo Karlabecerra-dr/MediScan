@@ -11,6 +11,8 @@ import 'screens/scan_screen.dart';
 import 'screens/medication_detail_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/medications_screen.dart';
+import 'screens/profiles_screen.dart';
+import 'services/active_profile.dart';
 
 // Servicio encargado de inicializar y manejar las notificaciones locales
 import 'services/notification_service.dart';
@@ -63,7 +65,17 @@ class MediScanApp extends StatelessWidget {
 
           // Usuario autenticado → Home
           if (snapshot.hasData) {
-            return const HomeScreen();
+            return FutureBuilder<void>(
+              future: ActiveProfile.initAndEnsure(),
+              builder: (context, snap2) {
+                if (snap2.connectionState == ConnectionState.waiting) {
+                  return const Scaffold(
+                    body: Center(child: CircularProgressIndicator()),
+                  );
+                }
+                return const HomeScreen();
+              },
+            );
           }
 
           // Sin sesión → Login
@@ -78,6 +90,7 @@ class MediScanApp extends StatelessWidget {
         ScanScreen.routeName: (_) => const ScanScreen(),
         LoginScreen.routeName: (_) => const LoginScreen(),
         MedicationsScreen.routeName: (_) => const MedicationsScreen(),
+        ProfilesScreen.routeName: (_) => const ProfilesScreen(),
       },
 
       // Ruta con argumentos (detalle de medicamento)

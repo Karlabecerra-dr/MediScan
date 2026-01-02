@@ -13,6 +13,9 @@ class Medication {
   // ID obtenido desde el escaneo (por ejemplo, código de barras)
   final String? medId;
 
+  // ✅ ID del perfil dueño del medicamento (perfil dentro de la cuenta)
+  final String? profileId;
+
   // Nombre del medicamento
   final String name;
 
@@ -46,6 +49,7 @@ class Medication {
     this.id,
     this.userId,
     this.medId,
+    this.profileId,
     required this.name,
     required this.dose,
     required this.presentation,
@@ -53,14 +57,14 @@ class Medication {
     required this.times,
     required this.status,
     this.description,
-    required this.taken,
+    this.taken = const {},
   });
 
-  // Convierte el objeto Medication a un Map
-  // para poder guardarlo en Firestore
+  // Convierte el objeto Medication a un Map para guardarlo en Firestore
   Map<String, dynamic> toMap() {
     return {
       'userId': userId,
+      'profileId': profileId,
       'medId': medId,
       'name': name,
       'dose': dose,
@@ -73,21 +77,68 @@ class Medication {
     };
   }
 
-  // Crea una instancia de Medication a partir de un Map
-  // obtenido desde Firestore
+  // ============================
+  //  Helpers de parseo seguros
+  // ============================
+
+  // Convierte cualquier lista dinámica a List<String>
+  static List<String> _stringList(dynamic value) {
+    if (value is List) {
+      return value.map((e) => e.toString()).toList();
+    }
+    return const [];
+  }
+
+  // Convierte el mapa `taken` a Map<String,bool> de forma segura
+  static Map<String, bool> _takenMap(dynamic value) {
+    if (value is Map) {
+      final result = <String, bool>{};
+      value.forEach((k, v) {
+        final key = k.toString();
+
+        // Lo normal: ya viene bool
+        if (v is bool) {
+          result[key] = v;
+          return;
+        }
+
+        // Por si llega como 1/0 o "true"/"false" (por cambios antiguos)
+        if (v is num) {
+          result[key] = v != 0;
+          return;
+        }
+        if (v is String) {
+          result[key] = v.toLowerCase() == 'true';
+          return;
+        }
+
+        // Default: si viene algo raro, lo tratamos como false
+        result[key] = false;
+      });
+      return result;
+    }
+    return const {};
+  }
+
+  // Crea una instancia de Medication a partir de un Map de Firestore
   factory Medication.fromMap(Map<String, dynamic> map, {String? id}) {
     return Medication(
       id: id,
       userId: map['userId'] as String?,
+      profileId: map['profileId'] as String?, // ✅ perfil
       medId: map['medId'] as String?,
-      name: map['name'] as String? ?? '',
-      dose: map['dose'] as String? ?? '',
-      presentation: map['presentation'] as String? ?? 'Tableta',
-      days: List<String>.from(map['days'] ?? const []),
-      times: List<String>.from(map['times'] ?? const []),
-      status: map['status'] as String? ?? 'pendiente',
+
+      name: (map['name'] as String?) ?? '',
+      dose: (map['dose'] as String?) ?? '',
+      presentation: (map['presentation'] as String?) ?? 'Tableta',
+
+      days: _stringList(map['days']),
+      times: _stringList(map['times']),
+
+      status: (map['status'] as String?) ?? 'pendiente',
       description: map['description'] as String?,
-      taken: Map<String, bool>.from(map['taken'] ?? {}),
+
+      taken: _takenMap(map['taken']),
     );
   }
 }
